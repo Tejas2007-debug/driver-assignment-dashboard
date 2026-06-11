@@ -1,14 +1,14 @@
 const API_BASE = localStorage.getItem("apiBase") || "http://localhost:5000/api";
 
 const modules = [
-  { id: "dashboard", label: "Dashboard", icon: "fa-chart-line", subtitle: "Centralized driver assignment operations" },
-  { id: "customers", label: "Customers", icon: "fa-users", subtitle: "Manage customer records and details" },
-  { id: "bookings", label: "Bookings", icon: "fa-calendar-check", subtitle: "Create, filter, and manage trip bookings" },
-  { id: "drivers", label: "Drivers", icon: "fa-id-card", subtitle: "Manage driver availability and profiles" },
-  { id: "vehicles", label: "Vehicles", icon: "fa-car-side", subtitle: "Manage vehicle availability and details" },
-  { id: "assignments", label: "Assignments", icon: "fa-clipboard-list", subtitle: "Assign drivers and vehicles without conflicts" },
-  { id: "trips", label: "Trip Status", icon: "fa-location-dot", subtitle: "Track active and completed trip status" },
-  { id: "reports", label: "Reports", icon: "fa-chart-pie", subtitle: "Assignment and utilization reports" },
+  { id: "dashboard", label: "Dashboard", icon: "fa-chart-line", page: "dashboard.html", subtitle: "Centralized driver assignment operations" },
+  { id: "customers", label: "Customers", icon: "fa-users", page: "customers.html", subtitle: "Manage customer records and details" },
+  { id: "bookings", label: "Bookings", icon: "fa-calendar-check", page: "bookings.html", subtitle: "Create, filter, and manage trip bookings" },
+  { id: "drivers", label: "Drivers", icon: "fa-id-card", page: "drivers.html", subtitle: "Manage driver availability and profiles" },
+  { id: "vehicles", label: "Vehicles", icon: "fa-car-side", page: "vehicles.html", subtitle: "Manage vehicle availability and details" },
+  { id: "assignments", label: "Assignments", icon: "fa-clipboard-list", page: "assignments.html", subtitle: "Assign drivers and vehicles without conflicts" },
+  { id: "trips", label: "Trip Status", icon: "fa-location-dot", page: "trips.html", subtitle: "Track active and completed trip status" },
+  { id: "reports", label: "Reports", icon: "fa-chart-pie", page: "reports.html", subtitle: "Assignment and utilization reports" },
 ];
 
 const state = {
@@ -25,20 +25,21 @@ const content = $("#content");
 const loader = $("#loader");
 
 document.addEventListener("DOMContentLoaded", async () => {
-  state.modal = new bootstrap.Modal($("#entityModal"));
+  state.active = detectModule();
+  state.modal = $("#entityModal") ? new bootstrap.Modal($("#entityModal")) : null;
   renderNav();
   bindShell();
   await boot();
 });
 
 function bindShell() {
-  $("#loginForm").addEventListener("submit", login);
-  $("#logoutBtn").addEventListener("click", logout);
-  $("#sidebarToggle").addEventListener("click", () => {
+  $("#loginForm")?.addEventListener("submit", login);
+  $("#logoutBtn")?.addEventListener("click", logout);
+  $("#sidebarToggle")?.addEventListener("click", () => {
     if (window.innerWidth < 993) $("#sidebar").classList.toggle("open");
     else $("#sidebar").classList.toggle("collapsed");
   });
-  $("#entityForm").addEventListener("submit", saveModalForm);
+  $("#entityForm")?.addEventListener("submit", saveModalForm);
 }
 
 async function boot() {
@@ -46,21 +47,25 @@ async function boot() {
     const res = await api("/auth/me");
     state.user = res.user;
     showApp();
-    await navigate("dashboard");
+    await navigate(state.active);
   } catch {
     showLogin();
   }
 }
 
 function showApp() {
-  $("#loginScreen").classList.add("d-none");
-  $("#appShell").classList.remove("d-none");
-  $("#userName").textContent = state.user?.name || "Admin";
+  $("#loginScreen")?.classList.add("d-none");
+  $("#appShell")?.classList.remove("d-none");
+  if ($("#userName")) $("#userName").textContent = state.user?.name || "Admin";
 }
 
 function showLogin() {
-  $("#loginScreen").classList.remove("d-none");
-  $("#appShell").classList.add("d-none");
+  if ($("#loginScreen")) {
+    $("#loginScreen").classList.remove("d-none");
+    $("#appShell")?.classList.add("d-none");
+    return;
+  }
+  window.location.href = "index.html";
 }
 
 async function login(event) {
@@ -72,8 +77,7 @@ async function login(event) {
       body: { email: $("#loginEmail").value, password: $("#loginPassword").value },
     });
     state.user = res.user;
-    showApp();
-    await navigate("dashboard");
+    window.location.href = "dashboard.html";
   } catch (error) {
     $("#loginError").textContent = error.message;
     $("#loginError").classList.remove("d-none");
@@ -87,22 +91,18 @@ async function logout() {
 }
 
 function renderNav() {
+  if (!$("#sidebarNav")) return;
   $("#sidebarNav").innerHTML = modules
     .map((item) => `
-      <button class="nav-link ${item.id === state.active ? "active" : ""}" data-module="${item.id}" type="button" title="${item.label}">
+      <a class="nav-link ${item.id === state.active ? "active" : ""}" href="${item.page}" title="${item.label}">
         <i class="fa-solid ${item.icon}"></i><span class="nav-label">${item.label}</span>
-      </button>
+      </a>
     `)
     .join("");
-  $("#sidebarNav").addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-module]");
-    if (!button) return;
-    await navigate(button.dataset.module);
-    $("#sidebar").classList.remove("open");
-  });
 }
 
 async function navigate(moduleId) {
+  if (!content) return;
   state.active = moduleId;
   renderNav();
   const module = modules.find((item) => item.id === moduleId);
@@ -140,10 +140,14 @@ async function api(path, options = {}) {
 }
 
 function showLoader(show) {
-  loader.classList.toggle("d-none", !show);
+  loader?.classList.toggle("d-none", !show);
 }
 
 function toast(message, type = "success") {
+  if (!$("#toastHost")) {
+    alert(message);
+    return;
+  }
   const id = `toast-${Date.now()}`;
   $("#toastHost").insertAdjacentHTML(
     "beforeend",
@@ -552,6 +556,13 @@ function chart(id, type, data, colors) {
 
 function capitalize(value) {
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function detectModule() {
+  const explicit = document.body.dataset.module;
+  if (explicit) return explicit;
+  const filename = window.location.pathname.split("/").pop().replace(".html", "");
+  return modules.some((item) => item.id === filename) ? filename : "dashboard";
 }
 
 function escapeHtml(value) {

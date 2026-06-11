@@ -46,6 +46,14 @@ driver_assignment_dashboard/
     API_DOCUMENTATION.md
     INSTALLATION_GUIDE.md
   frontend/
+    dashboard.html
+    customers.html
+    bookings.html
+    drivers.html
+    vehicles.html
+    assignments.html
+    trips.html
+    reports.html
     index.html
     assets/
       css/styles.css
@@ -88,7 +96,7 @@ cd frontend
 python -m http.server 5500
 ```
 
-5. Open `http://localhost:5500`.
+5. Open `http://localhost:5500/index.html` and login. Successful login redirects to `dashboard.html`.
 
 Default login:
 

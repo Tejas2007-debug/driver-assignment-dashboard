@@ -73,7 +73,18 @@ cd frontend
 python -m http.server 5500
 ```
 
-Open: `http://localhost:5500`
+Open: `http://localhost:5500/index.html`
+
+After login, the application redirects to `dashboard.html`. The separate module pages are:
+
+- `dashboard.html`
+- `customers.html`
+- `bookings.html`
+- `drivers.html`
+- `vehicles.html`
+- `assignments.html`
+- `trips.html`
+- `reports.html`
 
 ## Notes
 

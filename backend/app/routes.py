@@ -24,7 +24,12 @@ from .utils import (
 )
 
 api_bp = Blueprint("api", __name__)
-
+@api_bp.route("/")
+def home():
+    return {
+        "message": "Driver Assignment Dashboard API Running Successfully",
+        "status": "online"
+    }
 
 def ok(data=None, status=200):
     return jsonify(data or {}), status

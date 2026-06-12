@@ -61,7 +61,7 @@ class Driver(db.Model, TimestampMixin):
     phone = db.Column(db.String(30), nullable=False)
     license_number = db.Column(db.String(80), unique=True, nullable=False)
     experience = db.Column(db.Integer, nullable=False, default=0)
-    availability_status = db.Column(db.Enum("Available", "Assigned", "Unavailable"), default="Available", nullable=False)
+    availability_status = db.Column(db.Enum("Available", "Assigned", "Unavailable", name="driver_availability_enum"), default="Available", nullable=False)
     assignments = db.relationship("Assignment", back_populates="driver")
 
     def to_dict(self):
@@ -83,7 +83,7 @@ class Vehicle(db.Model, TimestampMixin):
     vehicle_number = db.Column(db.String(80), unique=True, nullable=False, index=True)
     vehicle_type = db.Column(db.String(80), nullable=False)
     capacity = db.Column(db.Integer, nullable=False)
-    status = db.Column(db.Enum("Available", "Assigned", "Maintenance"), default="Available", nullable=False)
+    status = db.Column(db.Enum("Available", "Assigned", "Maintenance", name="vehicle_status_enum"), default="Available", nullable=False)
     assignments = db.relationship("Assignment", back_populates="vehicle")
 
     def to_dict(self):
@@ -109,7 +109,7 @@ class Booking(db.Model, TimestampMixin):
     trip_time = db.Column(db.Time, nullable=False)
     vehicle_type = db.Column(db.String(80), nullable=False)
     status = db.Column(
-        db.Enum("Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"),
+        db.Enum("Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed", name="booking_status_enum"),
         default="Pending",
         nullable=False,
         index=True,

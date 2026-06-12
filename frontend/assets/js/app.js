@@ -1,5 +1,4 @@
-const API_BASE = localStorage.getItem("apiBase") || "http://localhost:5000/api";
-
+const API_BASE = "http://127.0.0.1:5000/api";
 const modules = [
   { id: "dashboard", label: "Dashboard", icon: "fa-chart-line", page: "dashboard.html", subtitle: "Centralized driver assignment operations" },
   { id: "customers", label: "Customers", icon: "fa-users", page: "customers.html", subtitle: "Manage customer records and details" },
@@ -27,6 +26,7 @@ const loader = $("#loader");
 document.addEventListener("DOMContentLoaded", async () => {
   state.active = detectModule();
   state.modal = $("#entityModal") ? new bootstrap.Modal($("#entityModal")) : null;
+  enhanceTopbar();
   renderNav();
   bindShell();
   await boot();
@@ -36,10 +36,35 @@ function bindShell() {
   $("#loginForm")?.addEventListener("submit", login);
   $("#logoutBtn")?.addEventListener("click", logout);
   $("#sidebarToggle")?.addEventListener("click", () => {
-    if (window.innerWidth < 993) $("#sidebar").classList.toggle("open");
-    else $("#sidebar").classList.toggle("collapsed");
-  });
+
+    if (window.innerWidth < 993) {
+
+        $("#sidebar").classList.toggle("open");
+        document.querySelector(".sidebar-overlay")
+            ?.classList.toggle("show");
+
+    } else {
+
+        $("#sidebar").classList.toggle("collapsed");
+
+    }
+
+});
+
+document.querySelector(".sidebar-overlay")
+?.addEventListener("click", () => {
+
+    $("#sidebar").classList.remove("open");
+
+    document.querySelector(".sidebar-overlay")
+        ?.classList.remove("show");
+
+});
   $("#entityForm")?.addEventListener("submit", saveModalForm);
+  $("#togglePassword")?.addEventListener("click", togglePassword);
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".profile-menu")) document.querySelector(".profile-menu")?.classList.remove("open");
+  });
 }
 
 async function boot() {
@@ -99,6 +124,37 @@ function renderNav() {
       </a>
     `)
     .join("");
+}
+
+function enhanceTopbar() {
+  const actions = $(".topbar-actions");
+  if (!actions || actions.dataset.enhanced === "true") return;
+  actions.dataset.enhanced = "true";
+  const userChip = actions.querySelector(".user-chip");
+  const logoutBtn = actions.querySelector("#logoutBtn");
+  userChip?.remove();
+  logoutBtn?.remove();
+  actions.insertAdjacentHTML(
+    "afterbegin",
+    `<div class="date-pill"><i class="fa-regular fa-calendar"></i><span id="currentDate"></span></div>
+     <div class="profile-menu">
+       <button class="profile-trigger" type="button" title="Profile menu">
+         <span class="avatar avatar-admin">MT</span>
+         <span class="profile-copy"><strong id="userName">Admin</strong><small>Operations Admin</small></span>
+         <i class="fa-solid fa-chevron-down"></i>
+       </button>
+       <div class="profile-dropdown">
+         <div class="profile-dropdown-head"><span class="avatar avatar-admin">MT</span><div><strong>Manivtha Admin</strong><small>Driver assignments</small></div></div>
+         <button id="logoutBtn" class="dropdown-action" type="button"><i class="fa-solid fa-arrow-right-from-bracket"></i>Logout</button>
+       </div>
+     </div>`
+  );
+  $("#currentDate").textContent = new Intl.DateTimeFormat("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).format(new Date());
+  $(".profile-trigger")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    $(".profile-menu")?.classList.toggle("open");
+  });
+  $("#logoutBtn")?.addEventListener("click", logout);
 }
 
 async function navigate(moduleId) {
@@ -188,9 +244,9 @@ async function renderDashboard() {
       ${metric("Available Vehicles", data.cards.available_vehicles, "fa-car-side")}
     </div>
     <div class="row g-3 mb-3">
-      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><canvas id="dailyChart" height="220"></canvas></div></div>
-      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Weekly Bookings</h3></div><canvas id="weeklyChart" height="220"></canvas></div></div>
-      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Trip Status Overview</h3></div><canvas id="statusChart" height="220"></canvas></div></div>
+      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
+      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Weekly Bookings</h3></div><div class="chart-container"><canvas id="weeklyChart"></canvas></div></div></div>
+      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Trip Status Overview</h3></div><div class="chart-container"><canvas id="statusChart"></canvas></div></div></div>
     </div>
     <div class="row g-3">
       <div class="col-xl-6">${tablePanel("Recent Assignments", assignmentRows(data.recent_assignments))}</div>
@@ -203,9 +259,47 @@ async function renderDashboard() {
 }
 
 function metric(label, value, icon) {
-  return `<div class="col-sm-6 col-xl-4"><div class="card-lite metric-card">
-    <div><span>${label}</span><strong>${value}</strong></div><div class="metric-icon"><i class="fa-solid ${icon}"></i></div>
-  </div></div>`;
+  return `
+  <div class="col-6 col-md-4 col-lg-2">
+      <div class="card-lite metric-card dashboard-metric-card">
+          <div class="metric-content">
+              <span>${label}</span>
+              <strong>${value}</strong>
+              <small>
+                  <i class="fa-solid fa-arrow-trend-up"></i>
+                  Live operations
+              </small>
+          </div>
+
+          <div class="metric-icon">
+              <i class="fa-solid ${icon}"></i>
+          </div>
+      </div>
+  </div>`;
+}
+
+function reportMetric(label, value, icon) {
+  return `
+  <div class="col-12 col-md-4">
+      <div class="card-lite metric-card report-metric-card">
+
+          <div class="metric-content">
+              <span>${label}</span>
+
+              <strong>${value}</strong>
+
+              <small>
+                  <i class="fa-solid fa-arrow-trend-up"></i>
+                  Live operations
+              </small>
+          </div>
+
+          <div class="metric-icon">
+              <i class="fa-solid ${icon}"></i>
+          </div>
+
+      </div>
+  </div>`;
 }
 
 const configs = {
@@ -220,7 +314,7 @@ const configs = {
       ["address", "Address", "textarea"],
     ],
     headers: ["Name", "Phone", "Email", "Address", "Actions"],
-    row: (x) => [x.name, x.phone, x.email || "-", x.address || "-"],
+    row: (x) => [profileCell(x.name, x.email, "customer"), x.phone, x.email || "-", x.address || "-"],
   },
   drivers: {
     endpoint: "/drivers",
@@ -234,7 +328,7 @@ const configs = {
       ["availability_status", "Availability Status", "select", ["Available", "Assigned", "Unavailable"]],
     ],
     headers: ["Name", "Phone", "License", "Experience", "Availability", "Actions"],
-    row: (x) => [x.name, x.phone, x.license_number, `${x.experience} years`, badge(x.availability_status)],
+    row: (x) => [profileCell(x.name, x.phone, "driver"), x.phone, x.license_number, expBadge(x.experience), badge(x.availability_status)],
   },
   vehicles: {
     endpoint: "/vehicles",
@@ -248,7 +342,7 @@ const configs = {
       ["status", "Status", "select", ["Available", "Assigned", "Maintenance"]],
     ],
     headers: ["Name", "Number", "Type", "Capacity", "Status", "Actions"],
-    row: (x) => [x.name, x.vehicle_number, x.vehicle_type, x.capacity, badge(x.status)],
+    row: (x) => [vehicleCell(x), x.vehicle_number, x.vehicle_type, `${x.capacity} seats`, badge(x.status)],
   },
   bookings: {
     endpoint: "/bookings",
@@ -264,7 +358,7 @@ const configs = {
       ["status", "Status", "select", ["Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"]],
     ],
     headers: ["Booking ID", "Customer", "Pickup", "Drop", "Date", "Time", "Vehicle Type", "Status", "Actions"],
-    row: (x) => [x.booking_code, x.customer_name, x.pickup_location, x.drop_location, x.trip_date, x.trip_time, x.vehicle_type, badge(x.status)],
+    row: (x) => [`<strong class="booking-id">${x.booking_code}</strong>`, profileCell(x.customer_name, x.vehicle_type, "customer"), x.pickup_location, x.drop_location, x.trip_date, x.trip_time, x.vehicle_type, badge(x.status)],
   },
 };
 
@@ -348,7 +442,7 @@ function openEntityModal(type, item = null) {
 function fieldControl([name, label, type, options], item) {
   const value = item?.[name] ?? "";
   if (type === "textarea") {
-    return `<div class="col-12"><label class="form-label">${label}</label><textarea class="form-control" name="${name}" rows="3">${escapeHtml(value)}</textarea></div>`;
+    return `<div class="col-12"><div class="form-floating"><textarea class="form-control" name="${name}" placeholder="${label}" rows="3">${escapeHtml(value)}</textarea><label>${label}</label></div></div>`;
   }
   if (type === "select") {
     const opts = options.map((option) => {
@@ -356,9 +450,9 @@ function fieldControl([name, label, type, options], item) {
       const text = Array.isArray(option) ? option[1] : option;
       return `<option value="${val}" ${String(val) === String(value) ? "selected" : ""}>${text}</option>`;
     });
-    return `<div class="col-md-6"><label class="form-label">${label}</label><select class="form-select" name="${name}" required>${opts.join("")}</select></div>`;
+    return `<div class="col-md-6"><div class="form-floating"><select class="form-select" name="${name}" required>${opts.join("")}</select><label>${label}</label></div></div>`;
   }
-  return `<div class="col-md-6"><label class="form-label">${label}</label><input class="form-control" name="${name}" type="${type}" value="${escapeHtml(value)}" required></div>`;
+  return `<div class="col-md-6"><div class="form-floating"><input class="form-control" name="${name}" type="${type}" value="${escapeHtml(value)}" placeholder="${label}" required><label>${label}</label></div></div>`;
 }
 
 async function saveModalForm(event) {
@@ -370,6 +464,77 @@ async function saveModalForm(event) {
   const { type, item } = state.modalMode;
   const config = configs[type];
   const body = Object.fromEntries(new FormData(event.target).entries());
+  // CUSTOMER VALIDATION
+if (type === "customers") {
+
+    if (!/^[A-Za-z ]+$/.test(body.name)) {
+        toast("Customer name must contain only letters", "danger");
+        return;
+    }
+
+    if (!/^[0-9]{10}$/.test(body.phone)) {
+        toast("Phone number must be exactly 10 digits", "danger");
+        return;
+    }
+
+    if (
+        body.email &&
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)
+    ) {
+        toast("Invalid email address", "danger");
+        return;
+    }
+}
+
+// DRIVER VALIDATION
+if (type === "drivers") {
+
+    if (!/^[0-9]{10}$/.test(body.phone)) {
+        toast("Driver phone number must be 10 digits", "danger");
+        return;
+    }
+
+    if (
+        Number(body.experience) < 0 ||
+        Number(body.experience) > 50
+    ) {
+        toast(
+            "Experience must be between 0 and 50 years",
+            "danger"
+        );
+        return;
+    }
+}
+
+// VEHICLE VALIDATION
+if (type === "vehicles") {
+
+    if (Number(body.capacity) <= 0) {
+        toast(
+            "Vehicle capacity must be greater than zero",
+            "danger"
+        );
+        return;
+    }
+}
+
+// BOOKING VALIDATION
+if (type === "bookings") {
+
+    const tripDate = new Date(body.trip_date);
+    const today = new Date();
+
+    today.setHours(0, 0, 0, 0);
+
+    if (tripDate < today) {
+        toast(
+            "Trip date cannot be in the past",
+            "danger"
+        );
+        return;
+    }
+}
+
   try {
     await api(item ? `${config.endpoint}/${item.id}` : config.endpoint, { method: item ? "PUT" : "POST", body });
     state.modal.hide();
@@ -393,45 +558,91 @@ async function deleteEntity(type, id) {
 }
 
 async function renderAssignments() {
+  console.log("LATEST VERSION LOADED");
   await loadCoreData();
+  console.log("Assignments:", state.data.assignments);
   content.innerHTML = `
     <div class="row g-3">
       <div class="col-xl-4">
-        <div class="card-lite panel">
+        <div class="card-lite panel assignment-form-card">
           <div class="panel-title"><h3>Assign Driver & Vehicle</h3></div>
           <form id="assignmentForm" class="row g-3">
             ${selectField("booking_id", "Booking", state.data.bookings.filter((b) => !b.assignment).map((b) => [b.id, `${b.booking_code} - ${b.customer_name}`]))}
             ${selectField("driver_id", "Driver", state.data.drivers.map((d) => [d.id, `${d.name} (${d.availability_status})`]))}
             ${selectField("vehicle_id", "Vehicle", state.data.vehicles.map((v) => [v.id, `${v.name} - ${v.vehicle_number} (${v.status})`]))}
-            <div class="col-12"><label class="form-label">Notes</label><textarea class="form-control" name="notes" rows="3"></textarea></div>
+            <div class="col-12"><div class="form-floating"><textarea class="form-control" name="notes" placeholder="Notes" rows="3"></textarea><label>Notes</label></div></div>
             <div class="col-12"><button class="btn btn-primary w-100" type="submit"><i class="fa-solid fa-link me-2"></i>Create Assignment</button></div>
           </form>
         </div>
       </div>
-      <div class="col-xl-8">${tablePanel("Assignment History", assignmentRows(state.data.assignments, true))}</div>
+      <div class="col-xl-8"><div class="card-lite panel"><div class="panel-title"><h3>Assignment History</h3></div>${assignmentTimeline(state.data.assignments, true)}</div></div>
     </div>
   `;
   $("#assignmentForm").addEventListener("submit", saveAssignment);
   document.querySelectorAll("[data-reassign]").forEach((button) => button.addEventListener("click", () => openReassignModal(Number(button.dataset.reassign))));
+  document.querySelectorAll("[data-delete-assignment]")
+.forEach((button) =>
+    button.addEventListener("click", () =>
+        deleteAssignment(
+            Number(button.dataset.deleteAssignment)
+        )
+    )
+);
 }
 
 function selectField(name, label, options) {
-  return `<div class="col-12"><label class="form-label">${label}</label><select class="form-select" name="${name}" required>
+  return `<div class="col-12"><div class="form-floating"><select class="form-select" name="${name}" required>
     <option value="">Select ${label.toLowerCase()}</option>
     ${options.map((x) => `<option value="${x[0]}">${escapeHtml(x[1])}</option>`).join("")}
-  </select></div>`;
+  </select><label>${label}</label></div></div>`;
+}
+
+async function deleteAssignment(id) {
+
+    if (!confirm("Delete this completed assignment?"))
+        return;
+
+    try {
+
+        await api(`/assignments/${id}`, {
+            method: "DELETE"
+        });
+
+        toast("Assignment deleted");
+
+        await renderAssignments();
+
+    } catch (error) {
+
+        toast(error.message, "danger");
+
+    }
 }
 
 async function saveAssignment(event) {
-  event.preventDefault();
-  const body = Object.fromEntries(new FormData(event.target).entries());
-  try {
-    await api("/assignments", { method: "POST", body });
-    toast("Assignment created");
-    await renderAssignments();
-  } catch (error) {
-    toast(error.message, "danger");
-  }
+
+    event.preventDefault();
+
+    const body = Object.fromEntries(
+        new FormData(event.target).entries()
+    );
+
+    try {
+
+        await api("/assignments", {
+            method: "POST",
+            body
+        });
+
+        toast("Assignment created");
+
+        await renderAssignments();
+
+    } catch (error) {
+
+        toast(error.message, "danger");
+
+    }
 }
 
 function openReassignModal(id) {
@@ -441,7 +652,7 @@ function openReassignModal(id) {
   $("#modalBody").innerHTML = `
     ${selectField("driver_id", "Driver", state.data.drivers.map((d) => [d.id, `${d.name} (${d.availability_status})`]))}
     ${selectField("vehicle_id", "Vehicle", state.data.vehicles.map((v) => [v.id, `${v.name} - ${v.vehicle_number} (${v.status})`]))}
-    <div class="col-12"><label class="form-label">Notes</label><textarea class="form-control" name="notes" rows="3">Reassignment</textarea></div>
+    <div class="col-12"><div class="form-floating"><textarea class="form-control" name="notes" placeholder="Notes" rows="3">Reassignment</textarea><label>Notes</label></div></div>
   `;
   state.modal.show();
 }
@@ -464,9 +675,9 @@ async function renderTrips() {
   state.data.trips = res.trips;
   content.innerHTML = `<div class="card-lite panel">
     <div class="table-responsive">
-      <table class="table table-hover">
-        <thead><tr><th>Booking ID</th><th>Customer</th><th>Driver</th><th>Vehicle</th><th>Pickup</th><th>Drop</th><th>Date</th><th>Time</th><th>Status</th><th>Update</th></tr></thead>
-        <tbody>${state.data.trips.map(tripRow).join("") || emptyRow(10)}</tbody>
+      <table class="table table-hover align-middle">
+        <thead><tr><th>Booking ID</th><th>Customer</th><th>Assignment</th><th>Pickup</th><th>Drop</th><th>Date</th><th>Time</th><th>Status</th><th>Update</th></tr></thead>
+        <tbody>${state.data.trips.map(tripRow).join("") || emptyRow(9)}</tbody>
       </table>
     </div>
   </div>`;
@@ -474,13 +685,28 @@ async function renderTrips() {
 }
 
 function tripRow(item) {
-  return `<tr>
-    <td>${item.booking_code}</td><td>${item.customer_name}</td><td>${item.assignment?.driver_name || "-"}</td>
-    <td>${item.assignment?.vehicle_name || "-"}</td><td>${item.pickup_location}</td><td>${item.drop_location}</td>
-    <td>${item.trip_date}</td><td>${item.trip_time}</td><td>${badge(item.status)}</td>
-    <td><select class="form-select form-select-sm" data-trip-status="${item.id}">
-      ${["Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"].map((s) => `<option ${s === item.status ? "selected" : ""}>${s}</option>`).join("")}
-    </select></td>
+  return `
+  <tr>
+    <td class="text-nowrap">
+      <strong>${item.booking_code}</strong>
+    </td>
+    <td class="text-nowrap">${item.customer_name}</td>
+    <td class="text-nowrap">
+      ${item.assignment ? `<strong>${item.assignment.driver_name}</strong><br><small>${item.assignment.vehicle_name}</small>` : `<span class="text-muted fw-semibold">Not Assigned</span>`}
+    </td>
+    <td>${item.pickup_location}</td>
+    <td>${item.drop_location}</td>
+    <td class="text-nowrap">${item.trip_date}</td>
+    <td class="text-nowrap">${item.trip_time}</td>
+    <td style="min-width: 130px;">
+      <div class="mb-1">${statusProgress(item.status)}</div>
+      ${badge(item.status)}
+    </td>
+    <td style="min-width: 160px;">
+      <select class="form-select form-select-sm" data-trip-status="${item.id}">
+        ${["Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"].map((s) => `<option ${s === item.status ? "selected" : ""}>${s}</option>`).join("")}
+      </select>
+    </td>
   </tr>`;
 }
 
@@ -496,21 +722,62 @@ async function updateTripStatus(event) {
 
 async function renderReports(period = "daily") {
   const res = await api(`/reports?period=${period}`);
+  const totalAssignments = res.assignments.length;
+  const activeDrivers = res.driver_utilization.filter((item) => item.value > 0).length;
+  const activeVehicles = res.vehicle_utilization.filter((item) => item.value > 0).length;
   content.innerHTML = `
     <div class="toolbar">
       <div class="btn-group" role="group">
         ${["daily", "weekly", "monthly"].map((p) => `<button class="btn ${p === period ? "btn-primary" : "btn-outline-primary"}" data-period="${p}">${capitalize(p)}</button>`).join("")}
       </div>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-light export-btn" data-export="pdf" type="button"><i class="fa-regular fa-file-pdf me-2"></i>Export PDF</button>
+        <button class="btn btn-light export-btn" data-export="excel" type="button"><i class="fa-regular fa-file-excel me-2"></i>Export Excel</button>
+      </div>
     </div>
     <div class="row g-3 mb-3">
-      <div class="col-lg-6"><div class="card-lite panel"><div class="panel-title"><h3>Driver Utilization</h3></div><canvas id="driverUtilChart" height="220"></canvas></div></div>
-      <div class="col-lg-6"><div class="card-lite panel"><div class="panel-title"><h3>Vehicle Utilization</h3></div><canvas id="vehicleUtilChart" height="220"></canvas></div></div>
+      ${reportMetric("Assignments", totalAssignments, "fa-clipboard-check")}
+      ${reportMetric("Active Drivers", activeDrivers, "fa-id-card")}
+      ${reportMetric("Active Vehicles", activeVehicles, "fa-car-side")} 
+    </div>
+    <div class="row g-3 mb-3">
+      <div class="col-lg-6"><div class="card-lite panel"><div class="panel-title"><h3>Driver Utilization</h3></div><div class="chart-container"><canvas id="driverUtilChart"></canvas></div></div></div>
+      <div class="col-lg-6"><div class="card-lite panel"><div class="panel-title"><h3>Vehicle Utilization</h3></div><div class="chart-container"><canvas id="vehicleUtilChart"></canvas></div></div></div>
     </div>
     ${tablePanel(`${capitalize(period)} Assignment Report`, assignmentRows(res.assignments))}
   `;
-  document.querySelectorAll("[data-period]").forEach((button) => button.addEventListener("click", () => renderReports(button.dataset.period)));
-  chart("driverUtilChart", "bar", res.driver_utilization, "#2563eb");
-  chart("vehicleUtilChart", "bar", res.vehicle_utilization, "#14b8a6");
+  document.querySelectorAll("[data-period]").forEach((button) =>
+    button.addEventListener("click", () =>
+        renderReports(button.dataset.period)
+    )
+);
+
+document.querySelectorAll("[data-export]").forEach((button) => {
+
+    button.addEventListener("click", () => {
+
+        if (button.dataset.export === "excel") {
+
+            window.open(
+                `${API_BASE}/reports/export/excel`,
+                "_blank"
+            );
+
+        } else {
+
+            window.open(
+                `${API_BASE}/reports/export/pdf`,
+                "_blank"
+            );
+
+        }
+
+    });
+
+});
+
+chart("driverUtilChart", "bar", res.driver_utilization, "#2563eb");
+chart("vehicleUtilChart", "bar", res.vehicle_utilization, "#14b8a6");
 }
 
 function tablePanel(title, rows) {
@@ -521,19 +788,86 @@ function tablePanel(title, rows) {
 function assignmentRows(rows, actions = false) {
   return `<thead><tr><th>Booking</th><th>Customer</th><th>Driver</th><th>Vehicle</th><th>Date</th><th>Status</th>${actions ? "<th>Action</th>" : ""}</tr></thead>
   <tbody>${rows.map((item) => `<tr>
-    <td>${item.booking_code}</td><td>${item.customer_name || "-"}</td><td>${item.driver_name}</td><td>${item.vehicle_name}</td>
+    <td>
+    <strong class="booking-id">
+        ${item.booking_code}
+    </strong>
+</td><td>${item.customer_name || "-"}</td><td>${item.driver_name}</td><td>${item.vehicle_name}</td>
     <td>${item.trip_date || "-"}</td><td>${badge(item.status || (item.is_active ? "Assigned" : "Reassigned"))}</td>
-    ${actions ? `<td><button class="btn btn-outline-primary btn-sm" data-reassign="${item.id}"><i class="fa-solid fa-rotate me-1"></i>Reassign</button></td>` : ""}
+    ${actions ? `
+<td><div class="actions">
+<button class="btn btn-outline-primary btn-sm" data-reassign="${item.id}" title="Reassign"><i class="fa-solid fa-rotate me-1"></i>Reassign</button>
+<button class="btn btn-outline-danger btn-sm ms-2" data-delete-assignment="${item.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
+</div></td>
+` : ""}
   </tr>`).join("") || emptyRow(actions ? 7 : 6)}</tbody>`;
 }
 
+function assignmentTimeline(rows, actions = false) {
+  return `<div class="timeline-list">${rows.map((item) => `<div class="timeline-item">
+    <div class="timeline-dot"></div>
+    <div class="timeline-card">
+      <div class="timeline-head"><strong class="booking-id">${item.booking_code}</strong>${badge(item.status || (item.is_active ? "Assigned" : "Reassigned"))}</div>
+      <div class="timeline-grid"><span><i class="fa-regular fa-user"></i>${item.customer_name || "-"}</span><span><i class="fa-solid fa-id-card"></i>${item.driver_name}</span><span><i class="fa-solid fa-car-side"></i>${item.vehicle_name}</span><span><i class="fa-regular fa-calendar"></i>${item.trip_date || "-"}</span></div>
+      ${actions ? `
+<div class="mt-3 d-flex gap-2">
+
+<button class="btn btn-outline-primary btn-sm"
+        data-reassign="${item.id}">
+    <i class="fa-solid fa-rotate me-1"></i>Reassign
+</button>
+
+${true ? `
+<button class="btn btn-outline-danger btn-sm"
+        data-delete-assignment="${item.id}">
+    <i class="fa-solid fa-trash"></i> Delete
+</button>
+` : ""}
+
+</div>
+` : ""}
+    </div>
+  </div>`).join("") || `<div class="text-center text-secondary py-4">No records found</div>`}</div>`;
+}
+
 function bookingRows(rows) {
-  return `<thead><tr><th>Booking</th><th>Customer</th><th>Pickup</th><th>Drop</th><th>Date</th><th>Status</th></tr></thead>
-  <tbody>${rows.map((item) => `<tr><td>${item.booking_code}</td><td>${item.customer_name}</td><td>${item.pickup_location}</td><td>${item.drop_location}</td><td>${item.trip_date} ${item.trip_time}</td><td>${badge(item.status)}</td></tr>`).join("") || emptyRow(6)}</tbody>`;
+  return `<thead><tr><th>Booking</th><th>Customer</th><th>Route</th><th>Date</th><th>Status</th></tr></thead>
+  <tbody>${rows.map((item) => `<tr><td><strong class="booking-id">${item.booking_code}</strong></td><td>${item.customer_name}</td><td>
+    <div class="route-cell">
+        <span>${item.pickup_location}</span>
+        <i class="fa-solid fa-arrow-right mx-2"></i>
+        <span>${item.drop_location}</span>
+    </div>
+</td><td>${item.trip_date} ${item.trip_time}</td><td>
+    ${statusProgress(item.status)}
+    <div class="mt-2">
+        ${badge(item.status)}
+    </div>
+</td></tr>`).join("") || emptyRow(6)}</tbody>`;
 }
 
 function badge(status) {
   return `<span class="badge-soft status-${String(status).replaceAll(" ", "-")}">${status}</span>`;
+}
+
+function profileCell(name, meta, type) {
+  const initials = String(name || "NA").split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+  const icon = type === "driver" ? "fa-id-card" : "fa-user";
+  return `<div class="profile-cell"><span class="avatar"><i class="fa-solid ${icon}"></i></span><div><strong class="text-nowrap">${escapeHtml(name || "-")}</strong><small>${escapeHtml(meta || "Profile")}</small></div></div>`;
+}
+
+function vehicleCell(vehicle) {
+  return `<div class="profile-cell"><span class="avatar vehicle-avatar"><i class="fa-solid fa-car-side"></i></span><div><strong class="text-nowrap">${escapeHtml(vehicle.name)}</strong><small>${escapeHtml(vehicle.vehicle_number)}</small></div></div>`;
+}
+
+function expBadge(years) {
+  return `<span class="experience-badge"><i class="fa-solid fa-award"></i>${years} years</span>`;
+}
+
+function statusProgress(status) {
+  const steps = ["Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"];
+  const index = Math.max(0, steps.indexOf(status));
+  return `<div class="status-steps">${steps.map((step, stepIndex) => `<span class="${stepIndex <= index ? "done" : ""}" title="${step}"></span>`).join("")}</div>`;
 }
 
 function emptyRow(cols) {
@@ -547,10 +881,41 @@ function chart(id, type, data, colors) {
   state.charts[id] = new Chart(ctx, {
     type,
     data: {
-      labels: data.map((item) => item.label),
+      labels: data.map(item => item.label),
       datasets: [{ data: data.map((item) => item.value), backgroundColor: colors, borderColor: colors, tension: 0.35, fill: false }],
     },
-    options: { responsive: true, plugins: { legend: { display: type === "doughnut" } }, scales: type === "doughnut" ? {} : { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+    options: {
+    responsive: true,
+    maintainAspectRatio: false,
+
+    plugins: {
+        legend: {
+            display: type === "doughnut"
+        }
+    },
+
+    scales: type === "doughnut"
+        ? {}
+        : {
+            x: {
+    ticks: {
+        autoSkip: false,
+        maxRotation: 45,
+        minRotation: 45,
+        font: {
+            size: 11
+        }
+    }
+},
+
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    precision: 0
+                }
+            }
+        }
+},
   });
 }
 
@@ -565,6 +930,40 @@ function detectModule() {
   return modules.some((item) => item.id === filename) ? filename : "dashboard";
 }
 
+function togglePassword() {
+  const input = $("#loginPassword");
+  const icon = $("#togglePassword i");
+  const showing = input.type === "text";
+  input.type = showing ? "password" : "text";
+  icon.className = showing ? "fa-regular fa-eye" : "fa-regular fa-eye-slash";
+}
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+
+    const menuBtn = document.getElementById("sidebarToggle");
+    const sidebar = document.getElementById("sidebar");
+    const overlay = document.querySelector(".sidebar-overlay");
+
+    if (menuBtn && sidebar && overlay) {
+
+        menuBtn.addEventListener("click", () => {
+
+            if (window.innerWidth <= 992) {
+                sidebar.classList.toggle("open");
+                overlay.classList.toggle("show");
+            }
+
+        });
+
+        overlay.addEventListener("click", () => {
+            sidebar.classList.remove("open");
+            overlay.classList.remove("show");
+        });
+
+    }
+
+});

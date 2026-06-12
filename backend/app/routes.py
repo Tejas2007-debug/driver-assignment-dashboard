@@ -1,3 +1,10 @@
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+from reportlab.lib import colors
+
+from io import BytesIO
+from flask import send_file
+from openpyxl import Workbook
+
 from datetime import date, datetime, timedelta
 
 from flask import Blueprint, jsonify, request, session
@@ -142,20 +149,35 @@ def create_customer():
 @login_required
 def customer_detail(customer_id):
     customer = Customer.query.get_or_404(customer_id)
+
     if request.method == "GET":
         return ok({"customer": customer.to_dict(include_bookings=True)})
+
     if request.method == "DELETE":
+        existing_booking = Booking.query.filter_by(
+            customer_id=customer.id
+        ).first()
+
+        if existing_booking:
+            return fail(
+                "Customer cannot be deleted because bookings are associated with this customer.",
+                400,
+            )
+
         db.session.delete(customer)
         db.session.commit()
         return ok({"message": "Customer deleted"})
+
     payload = request.get_json() or {}
+
     customer.name = payload.get("name", customer.name)
     customer.phone = payload.get("phone", customer.phone)
     customer.email = payload.get("email", customer.email)
     customer.address = payload.get("address", customer.address)
-    db.session.commit()
-    return ok({"customer": customer.to_dict()})
 
+    db.session.commit()
+
+    return ok({"customer": customer.to_dict()})
 
 @api_bp.get("/drivers")
 @login_required
@@ -193,20 +215,46 @@ def create_driver():
 @login_required
 def driver_detail(driver_id):
     driver = Driver.query.get_or_404(driver_id)
+
     if request.method == "DELETE":
+        active_assignment = Assignment.query.filter_by(
+            driver_id=driver.id,
+            is_active=True
+        ).first()
+
+        if active_assignment:
+            return fail(
+                "Driver has active assignments and cannot be deleted.",
+                400,
+            )
+
         db.session.delete(driver)
         db.session.commit()
         return ok({"message": "Driver deleted"})
+
     payload = request.get_json() or {}
-    status = payload.get("availability_status", driver.availability_status)
+
+    status = payload.get(
+        "availability_status",
+        driver.availability_status
+    )
+
     if status not in DRIVER_STATUSES:
         return fail("Invalid driver availability status")
+
     driver.name = payload.get("name", driver.name)
     driver.phone = payload.get("phone", driver.phone)
-    driver.license_number = payload.get("license_number", driver.license_number)
-    driver.experience = int(payload.get("experience", driver.experience))
+    driver.license_number = payload.get(
+        "license_number",
+        driver.license_number
+    )
+    driver.experience = int(
+        payload.get("experience", driver.experience)
+    )
     driver.availability_status = status
+
     db.session.commit()
+
     return ok({"driver": driver.to_dict()})
 
 
@@ -246,20 +294,49 @@ def create_vehicle():
 @login_required
 def vehicle_detail(vehicle_id):
     vehicle = Vehicle.query.get_or_404(vehicle_id)
+
     if request.method == "DELETE":
+        active_assignment = Assignment.query.filter_by(
+            vehicle_id=vehicle.id,
+            is_active=True
+        ).first()
+
+        if active_assignment:
+            return fail(
+                "Vehicle has active assignments and cannot be deleted.",
+                400,
+            )
+
         db.session.delete(vehicle)
         db.session.commit()
         return ok({"message": "Vehicle deleted"})
+
     payload = request.get_json() or {}
-    status = payload.get("status", vehicle.status)
+
+    status = payload.get(
+        "status",
+        vehicle.status
+    )
+
     if status not in VEHICLE_STATUSES:
         return fail("Invalid vehicle status")
+
     vehicle.name = payload.get("name", vehicle.name)
-    vehicle.vehicle_number = payload.get("vehicle_number", vehicle.vehicle_number)
-    vehicle.vehicle_type = payload.get("vehicle_type", vehicle.vehicle_type)
-    vehicle.capacity = int(payload.get("capacity", vehicle.capacity))
+    vehicle.vehicle_number = payload.get(
+        "vehicle_number",
+        vehicle.vehicle_number
+    )
+    vehicle.vehicle_type = payload.get(
+        "vehicle_type",
+        vehicle.vehicle_type
+    )
+    vehicle.capacity = int(
+        payload.get("capacity", vehicle.capacity)
+    )
     vehicle.status = status
+
     db.session.commit()
+
     return ok({"vehicle": vehicle.to_dict()})
 
 
@@ -313,22 +390,63 @@ def create_booking():
 @login_required
 def booking_detail(booking_id):
     booking = Booking.query.get_or_404(booking_id)
+
     if request.method == "DELETE":
+
+        active_assignment = Assignment.query.filter_by(
+            booking_id=booking.id,
+            is_active=True
+        ).first()
+
+        if active_assignment:
+            return fail(
+                "Booking has an active assignment and cannot be deleted.",
+                400,
+            )
+
         db.session.delete(booking)
         db.session.commit()
+
         return ok({"message": "Booking deleted"})
+
     payload = request.get_json() or {}
+
     status = payload.get("status", booking.status)
+
     if status not in BOOKING_STATUSES:
         return fail("Invalid booking status")
-    booking.customer_id = int(payload.get("customer_id", booking.customer_id))
-    booking.pickup_location = payload.get("pickup_location", booking.pickup_location)
-    booking.drop_location = payload.get("drop_location", booking.drop_location)
-    booking.trip_date = parse_date(payload.get("trip_date", booking.trip_date.isoformat()))
-    booking.trip_time = parse_time(payload.get("trip_time", booking.trip_time.strftime("%H:%M")))
-    booking.vehicle_type = payload.get("vehicle_type", booking.vehicle_type)
+
+    booking.customer_id = int(
+        payload.get("customer_id", booking.customer_id)
+    )
+    booking.pickup_location = payload.get(
+        "pickup_location",
+        booking.pickup_location
+    )
+    booking.drop_location = payload.get(
+        "drop_location",
+        booking.drop_location
+    )
+    booking.trip_date = parse_date(
+        payload.get(
+            "trip_date",
+            booking.trip_date.isoformat()
+        )
+    )
+    booking.trip_time = parse_time(
+        payload.get(
+            "trip_time",
+            booking.trip_time.strftime("%H:%M")
+        )
+    )
+    booking.vehicle_type = payload.get(
+        "vehicle_type",
+        booking.vehicle_type
+    )
     booking.status = status
+
     db.session.commit()
+
     return ok({"booking": booking.to_dict()})
 
 
@@ -471,3 +589,121 @@ def reports():
             "vehicle_utilization": [{"label": item[0], "value": item[1]} for item in vehicle_utilization],
         }
     )
+@api_bp.get("/reports/export/excel")
+@login_required
+def export_excel():
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Assignments Report"
+
+    ws.append([
+        "Booking ID",
+        "Customer",
+        "Driver",
+        "Vehicle",
+        "Trip Date",
+        "Status"
+    ])
+
+    assignments = Assignment.query.all()
+
+    for assignment in assignments:
+        booking = assignment.booking
+
+        ws.append([
+            booking.booking_code,
+            booking.customer.name if booking.customer else "",
+            assignment.driver.name if assignment.driver else "",
+            assignment.vehicle.name if assignment.vehicle else "",
+            booking.trip_date.strftime("%Y-%m-%d"),
+            booking.status
+        ])
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return send_file(
+    output,
+    as_attachment=True,
+    download_name="Driver_Assignment_Report.xlsx",
+    mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+
+
+@api_bp.get("/reports/export/pdf")
+@login_required
+def export_pdf():
+
+    buffer = BytesIO()
+
+    pdf = SimpleDocTemplate(buffer)
+
+    data = [[
+        "Booking ID",
+        "Customer",
+        "Driver",
+        "Vehicle",
+        "Trip Date",
+        "Status"
+    ]]
+
+    assignments = Assignment.query.all()
+
+    for assignment in assignments:
+
+        booking = assignment.booking
+
+        data.append([
+            booking.booking_code,
+            booking.customer.name if booking.customer else "",
+            assignment.driver.name if assignment.driver else "",
+            assignment.vehicle.name if assignment.vehicle else "",
+            booking.trip_date.strftime("%Y-%m-%d"),
+            booking.status
+        ])
+
+    table = Table(data)
+
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.darkblue),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+        ("GRID", (0, 0), (-1, -1), 1, colors.black)
+    ]))
+
+    pdf.build([table])
+
+    buffer.seek(0)
+
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name="Driver_Assignment_Report.pdf",
+        mimetype="application/pdf"
+    )
+
+@api_bp.delete("/assignments/<int:assignment_id>")
+@login_required
+def delete_assignment(assignment_id):
+
+    assignment = Assignment.query.get_or_404(
+        assignment_id
+    )
+
+    booking = assignment.booking
+
+    if booking.status != "Completed":
+        return fail(
+            "Only completed assignments can be deleted",
+            400
+        )
+
+    db.session.delete(assignment)
+    db.session.commit()
+
+    return ok({
+        "message": "Assignment deleted"
+    })

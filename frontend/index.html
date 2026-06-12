@@ -14,14 +14,30 @@
   <body>
     <div id="loginScreen" class="login-screen">
       <div class="login-panel fade-in">
-        <div class="brand-mark"><i class="fa-solid fa-route"></i></div>
-        <h1>Manivtha Tours & Travels</h1>
-        <p>Driver Assignment Dashboard</p>
+        <div class="login-brand-row">
+          <div class="brand-mark"><i class="fa-solid fa-route"></i></div>
+          <div>
+            <h1>Manivtha Tours & Travels</h1>
+            <p>Driver Assignment Dashboard</p>
+          </div>
+        </div>
         <form id="loginForm" class="mt-4">
-          <label class="form-label" for="loginEmail">Email</label>
-          <input id="loginEmail" class="form-control" type="email" value="admin@manivthatours.com" required>
-          <label class="form-label mt-3" for="loginPassword">Password</label>
-          <input id="loginPassword" class="form-control" type="password" value="Admin@123" required>
+          <div class="form-floating">
+            <input id="loginEmail" class="form-control" type="email" value="admin@manivthatours.com" placeholder="Email" required>
+            <label for="loginEmail">Email</label>
+          </div>
+          <div class="form-floating password-field mt-3">
+            <input id="loginPassword" class="form-control" type="password" value="Admin@123" placeholder="Password" required>
+            <label for="loginPassword">Password</label>
+            <button id="togglePassword" class="password-toggle" type="button" title="Show password"><i class="fa-regular fa-eye"></i></button>
+          </div>
+          <div class="login-options">
+            <label class="form-check">
+              <input class="form-check-input" type="checkbox" checked>
+              <span class="form-check-label">Remember me</span>
+            </label>
+            <span>Admin access</span>
+          </div>
           <button class="btn btn-primary w-100 mt-4" type="submit">
             <i class="fa-solid fa-right-to-bracket me-2"></i>Login
           </button>

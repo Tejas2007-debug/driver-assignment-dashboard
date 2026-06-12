@@ -18,5 +18,12 @@ def create_app(config_class=Config):
     @app.get("/health")
     def health_check():
         return jsonify({"status": "ok", "service": "Driver Assignment Dashboard"})
+    
+    @app.route("/")
+    def home():
+        return {
+            "message": "Driver Assignment Dashboard API Running",
+            "status": "online"
+    }
 
     return app

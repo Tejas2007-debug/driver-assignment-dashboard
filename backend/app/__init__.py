@@ -16,6 +16,26 @@ def create_app(config_class=Config):
         from . import models
         db.create_all()
 
+        from .models import User
+
+        existing_admin = User.query.filter_by(
+            email="admin@manivthatours.com"
+        ).first()
+
+        if not existing_admin:
+            admin = User(
+            name="Admin User",
+            email="admin@manivthatours.com",
+            role="admin"
+            )
+
+            admin.set_password("Admin@123")
+
+            db.session.add(admin)
+            db.session.commit()
+
+            print("Admin user created")
+
     CORS(app, supports_credentials=True, origins=app.config["FRONTEND_ORIGIN"])
 
     app.register_blueprint(api_bp, url_prefix="/api")

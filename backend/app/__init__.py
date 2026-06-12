@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, app, jsonify
 from flask_cors import CORS
 
 from .config import Config
@@ -11,6 +11,11 @@ def create_app(config_class=Config):
     app.config.from_object(config_class)
 
     db.init_app(app)
+
+    with app.app_context():
+        from . import models
+        db.create_all()
+
     CORS(app, supports_credentials=True, origins=app.config["FRONTEND_ORIGIN"])
 
     app.register_blueprint(api_bp, url_prefix="/api")

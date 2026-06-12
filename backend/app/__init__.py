@@ -21,9 +21,9 @@ def create_app(config_class=Config):
     
     @app.route("/")
     def home():
-        return {
+        return jsonify({
             "message": "Driver Assignment Dashboard API Running",
             "status": "online"
-    }
+        })
 
     return app

@@ -35,36 +35,119 @@ document.addEventListener("DOMContentLoaded", async () => {
 function bindShell() {
   $("#loginForm")?.addEventListener("submit", login);
   $("#logoutBtn")?.addEventListener("click", logout);
-  $("#sidebarToggle")?.addEventListener("click", () => {
 
-    if (window.innerWidth < 993) {
+  // Initialize a single, reusable sidebar system for all pages
+  initSidebar();
 
-        $("#sidebar").classList.toggle("open");
-        document.querySelector(".sidebar-overlay")
-            ?.classList.toggle("show");
-
-    } else {
-
-        $("#sidebar").classList.toggle("collapsed");
-
-    }
-
-});
-
-document.querySelector(".sidebar-overlay")
-?.addEventListener("click", () => {
-
-    $("#sidebar").classList.remove("open");
-
-    document.querySelector(".sidebar-overlay")
-        ?.classList.remove("show");
-
-});
   $("#entityForm")?.addEventListener("submit", saveModalForm);
   $("#togglePassword")?.addEventListener("click", togglePassword);
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".profile-menu")) document.querySelector(".profile-menu")?.classList.remove("open");
   });
+}
+
+/**
+ * initSidebar
+ * - Ensures a single overlay exists (created if missing)
+ * - Adds accessible attributes to the toggle button
+ * - Handles open/close for mobile/tablet/desktop using the same breakpoint as CSS (992px)
+ * - Adds keyboard support (Escape) and focus management
+ * - Closes sidebar when a navigation link is clicked on small viewports
+ */
+function initSidebar() {
+  try {
+    if (document.body.dataset.sidebarInitialized === "true") return;
+
+    // Ensure overlay exists
+    let overlay = document.querySelector('.sidebar-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'sidebar-overlay';
+      document.body.insertBefore(overlay, document.body.firstChild);
+    }
+
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.getElementById('sidebarToggle');
+    if (!sidebar || !toggle) return;
+
+    // Ensure semantic/ARIA attributes on sidebar
+    sidebar.setAttribute('role', 'navigation');
+    sidebar.setAttribute('aria-label', 'Main navigation');
+
+    // Accessibility attributes on toggle
+    toggle.setAttribute('aria-controls', 'sidebar');
+    toggle.setAttribute('aria-label', 'Toggle navigation');
+    toggle.setAttribute('aria-expanded', sidebar.classList.contains('open') ? 'true' : 'false');
+
+    const mq = window.matchMedia('(max-width: 992px)');
+    let previousFocus = null;
+
+    function openSidebar() {
+      sidebar.classList.add('open');
+      overlay.classList.add('show');
+      toggle.setAttribute('aria-expanded', 'true');
+      previousFocus = document.activeElement;
+      // focus first link for keyboard users
+      const firstLink = sidebar.querySelector('.nav-link');
+      if (firstLink) firstLink.focus();
+      document.addEventListener('keydown', onKeydown);
+    }
+
+    function closeSidebar() {
+      sidebar.classList.remove('open');
+      overlay.classList.remove('show');
+      toggle.setAttribute('aria-expanded', 'false');
+      if (previousFocus) previousFocus.focus(); else toggle.focus();
+      document.removeEventListener('keydown', onKeydown);
+    }
+
+    function onKeydown(e) {
+      if (e.key === 'Escape') closeSidebar();
+    }
+
+    toggle.addEventListener('click', (e) => {
+      // Use same breakpoint as CSS media queries (992px)
+      if (mq.matches) {
+        if (sidebar.classList.contains('open')) closeSidebar();
+        else openSidebar();
+      } else {
+        // Desktop/tablet behavior: collapse/expand
+        sidebar.classList.toggle('collapsed');
+      }
+    });
+
+    overlay.addEventListener('click', () => {
+      if (sidebar.classList.contains('open')) closeSidebar();
+    });
+
+    // Close sidebar when a nav item is clicked on small screens
+    function bindNavLinks() {
+      const links = document.querySelectorAll('#sidebarNav a.nav-link');
+      links.forEach((a) => {
+        // avoid double-binding
+        if (a.dataset.sidebarBound === 'true') return;
+        a.dataset.sidebarBound = 'true';
+        a.addEventListener('click', () => {
+          if (mq.matches) closeSidebar();
+        });
+      });
+    }
+
+    // monitor DOM changes to rebind nav links if sidebar content is re-rendered
+    const navNode = document.getElementById('sidebarNav');
+    if (navNode) {
+      bindNavLinks();
+      const obs = new MutationObserver(() => bindNavLinks());
+      obs.observe(navNode, { childList: true, subtree: true });
+    }
+
+    // expose a window helper for debugging/tests
+    window.__sidebar = { open: openSidebar, close: closeSidebar };
+
+    document.body.dataset.sidebarInitialized = 'true';
+  } catch (err) {
+    console.error('initSidebar error', err);
+  }
 }
 
 async function boot() {
@@ -942,28 +1025,3 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-
-    const menuBtn = document.getElementById("sidebarToggle");
-    const sidebar = document.getElementById("sidebar");
-    const overlay = document.querySelector(".sidebar-overlay");
-
-    if (menuBtn && sidebar && overlay) {
-
-        menuBtn.addEventListener("click", () => {
-
-            if (window.innerWidth <= 992) {
-                sidebar.classList.toggle("open");
-                overlay.classList.toggle("show");
-            }
-
-        });
-
-        overlay.addEventListener("click", () => {
-            sidebar.classList.remove("open");
-            overlay.classList.remove("show");
-        });
-
-    }
-
-});

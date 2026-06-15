@@ -149,7 +149,7 @@ a { text-decoration: none; }
   position: sticky;
   top: 0;
   height: 100vh;
-  z-index: 30;
+  z-index: 2000;
   color: #fff;
   overflow: hidden;
   background:
@@ -923,7 +923,7 @@ a { text-decoration: none; }
     position: absolute;
     right: 12px;
     top: 12px;
-    z-index: 40;
+    z-index: 2001;
   }
   .topbar-actions {
     width: 100%;

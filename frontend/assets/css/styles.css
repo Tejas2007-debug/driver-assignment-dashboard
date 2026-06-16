@@ -412,7 +412,8 @@ a { text-decoration: none; }
 
 .metric-card {
     position: relative;
-    min-height: 150px;
+    min-height: 160px;
+    height: 160px;
     padding: 20px 24px;
     gap: 20px;
 

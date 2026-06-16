@@ -350,12 +350,12 @@ async function renderDashboard() {
   const timing = tripTimingSummary(state.data.bookings);
   content.innerHTML = `
     <div class="row g-3 mb-3">
-      ${metric("Total Bookings", data.cards.total_bookings, "fa-calendar-check", "", "col-6 col-md-4 col-xl-2")}
-      ${metric("Active Trips", data.cards.active_trips, "fa-route", "", "col-6 col-md-4 col-xl-2")}
-      ${metric("Completed Trips", data.cards.completed_trips, "fa-circle-check", "", "col-6 col-md-4 col-xl-2")}
-      ${metric("Upcoming Trips", timing.upcoming, "fa-clock", "Scheduled pickups", "col-6 col-md-4 col-xl-2")}
-      ${metric("Recent Assignments", (data.recent_assignments || []).length, "fa-clipboard-check", "Latest completed links", "col-6 col-md-4 col-xl-2")}
-      ${metric("Next Pickup", timing.nextPickup, "fa-location-dot", timing.nextPickupDetail, "col-6 col-md-4 col-xl-2")}
+      ${metric("Total Bookings", data.cards.total_bookings, "fa-calendar-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
+      ${metric("Active Trips", data.cards.active_trips, "fa-route", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
+      ${metric("Completed Trips", data.cards.completed_trips, "fa-circle-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
+      ${metric("Upcoming Trips", timing.upcoming, "fa-clock", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
+      ${metric("Recent Assignments", (data.recent_assignments || []).length, "fa-clipboard-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
+      ${metric("Next Pickup", timing.nextPickup, "fa-location-dot", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
     </div>
     <div class="row g-3 mb-3">
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
@@ -385,18 +385,23 @@ function metric(label, value, icon, hint = "Live operations", colClass = "col-6 
   return `
   <div class="${colClass}">
       <div class="card-lite metric-card dashboard-metric-card">
+
           <div class="metric-content">
               <span>${escapeHtml(label)}</span>
-              <strong title="${escapeHtml(String(hint || ""))}">${escapeHtml(String(value))}</strong>
-              <small title="${escapeHtml(String(hint || ""))}">
+
+              <strong>${escapeHtml(String(value))}</strong>
+
+              <small>
                   <i class="fa-solid fa-arrow-trend-up"></i>
-                  ${escapeHtml(hint || "Live operations")}
+                  ${escapeHtml(hint)}
               </small>
+
           </div>
 
           <div class="metric-icon">
               <i class="fa-solid ${icon}"></i>
           </div>
+
       </div>
   </div>`;
 }

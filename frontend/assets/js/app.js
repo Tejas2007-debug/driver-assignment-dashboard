@@ -369,7 +369,13 @@ async function renderDashboard() {
           ${nextPickupPanel(timing)}
         </div>
       </div>
-      <div class="col-lg-8">${tablePanel("Upcoming Trips", upcomingTripRows(data.upcoming_trips), "compact-table responsive-card-table")}</div>
+      <div class="col-lg-8">
+        ${tablePanel(
+          "Upcoming Trips",
+          upcomingTripRows(data.upcoming_trips),
+          "compact-table responsive-card-table dashboard-upcoming-table"
+       )}
+    </div>
     </div>
     <div class="row g-3">
       <div class="col-12">${tablePanel("Recent Assignments", dashboardAssignmentRows(data.recent_assignments), "compact-table responsive-card-table dashboard-table")}</div>

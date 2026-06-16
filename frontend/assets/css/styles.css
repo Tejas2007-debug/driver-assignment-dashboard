@@ -477,7 +477,6 @@ a { text-decoration: none; }
     justify-content: center;
 
     border-radius: 16px;
-
     color: #fff;
 
     background: linear-gradient(
@@ -486,11 +485,11 @@ a { text-decoration: none; }
         #7c3aed
     );
 
-    box-shadow:
-        0 12px 25px rgba(59,130,246,.25);
+    box-shadow: 0 12px 25px rgba(59,130,246,.25);
 
     flex-shrink: 0;
-    margin-left: 16px;
+    margin-left: 24px;   /* was 16px */
+    margin-top: 8px;     /* add this */
 
     font-size: 18px;
 }
@@ -1348,4 +1347,16 @@ a { text-decoration: none; }
     width: 100%;
     min-width: 0;
   }
+}
+
+.dashboard-upcoming-table table {
+    table-layout: fixed;
+    width: 100%;
+}
+
+.dashboard-upcoming-table th,
+.dashboard-upcoming-table td {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }

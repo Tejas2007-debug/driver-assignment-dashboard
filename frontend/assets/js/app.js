@@ -36,7 +36,6 @@ const STORAGE_KEYS = {
   payment: "mtt_booking_payment_status",
   driverStatus: "mtt_driver_status_overrides",
   actionHistory: "mtt_assignment_action_history",
-  tripHistory: "mtt_trip_status_history",
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -125,7 +124,7 @@ function initSidebar() {
       if (e.key === 'Escape') closeSidebar();
     }
 
-    toggle.addEventListener('click', (e) => {
+    toggle.addEventListener('click', () => {
       // Use same breakpoint as CSS media queries (992px)
       if (mq.matches) {
         if (sidebar.classList.contains('open')) closeSidebar();
@@ -157,7 +156,9 @@ function initSidebar() {
     const navNode = document.getElementById('sidebarNav');
     if (navNode) {
       bindNavLinks();
+      window.sidebarObserver?.disconnect();
       const obs = new MutationObserver(() => bindNavLinks());
+      window.sidebarObserver = obs;
       obs.observe(navNode, { childList: true, subtree: true });
     }
 
@@ -198,17 +199,24 @@ function showLogin() {
 
 async function login(event) {
   event.preventDefault();
-  $("#loginError").classList.add("d-none");
+  $("#loginError")?.classList.add("d-none");
+
   try {
     const res = await api("/auth/login", {
       method: "POST",
-      body: { email: $("#loginEmail").value, password: $("#loginPassword").value },
+      body: {
+        email: $("#loginEmail").value,
+        password: $("#loginPassword").value,
+      },
     });
+
     state.user = res.user;
     window.location.href = "dashboard.html";
   } catch (error) {
-    $("#loginError").textContent = error.message;
-    $("#loginError").classList.remove("d-none");
+    if ($("#loginError")) {
+      $("#loginError").textContent = error.message;
+      $("#loginError").classList.remove("d-none");
+    }
   }
 }
 
@@ -265,22 +273,128 @@ async function navigate(moduleId) {
   state.active = moduleId;
   renderNav();
   const module = modules.find((item) => item.id === moduleId);
+  if (!module) return;
   $("#pageTitle").textContent = module.label;
   $("#pageSubtitle").textContent = module.subtitle;
   content.classList.remove("fade-in");
   void content.offsetWidth;
   content.classList.add("fade-in");
 
-  if (moduleId === "dashboard") await renderDashboard();
-  if (moduleId === "coordinator") await renderCoordinator();
-  if (moduleId === "customers") await renderCrud("customers");
-  if (moduleId === "bookings") await renderCrud("bookings");
-  if (moduleId === "drivers") await renderCrud("drivers");
-  if (moduleId === "vehicles") await renderCrud("vehicles");
-  if (moduleId === "assignments") await renderAssignments();
-  if (moduleId === "trips") await renderTrips();
-  if (moduleId === "reports") await renderReports();
+  try {
+    if (moduleId === "dashboard") await renderDashboard();
+    if (moduleId === "coordinator") await renderCoordinator();
+    if (moduleId === "customers") await renderCrud("customers");
+    if (moduleId === "bookings") await renderCrud("bookings");
+    if (moduleId === "drivers") await renderCrud("drivers");
+    if (moduleId === "vehicles") await renderCrud("vehicles");
+    if (moduleId === "assignments") await renderAssignments();
+    if (moduleId === "trips") await renderTrips();
+    if (moduleId === "reports") await renderReports();
+  } catch (error) {
+    content.innerHTML = `<div class="alert alert-danger">Unable to load ${escapeHtml(module.label)}. ${escapeHtml(error.message)}</div>`;
+  }
 }
+
+async function api(path, options = {}) {
+  showLoader(true);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: options.method || "GET",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || "Request failed");
+    return data;
+  } finally {
+    showLoader(false);
+  }
+}
+
+function showLoader(show) {
+  loader?.classList.toggle("d-none", !show);
+}
+
+function toast(message, type = "success") {
+  if (!$("#toastHost")) {
+    alert(message);
+    return;
+  }
+  const id = `toast-${Date.now()}`;
+  $("#toastHost").insertAdjacentHTML(
+    "beforeend",
+    `<div id="${id}" class="toast align-items-center text-bg-${type} border-0" role="alert">
+      <div class="d-flex"><div class="toast-body">${escapeHtml(message)}</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>
+    </div>`
+  );
+  const node = document.getElementById(id);
+  bootstrap.Toast.getOrCreateInstance(node, { delay: 2600 }).show();
+  node.addEventListener("hidden.bs.toast", () => node.remove());
+}
+
+async function loadCoreData() {
+  const [customers, bookings, drivers, vehicles, assignments] = await Promise.all([
+    api("/customers"),
+    api("/bookings"),
+    api("/drivers"),
+    api("/vehicles"),
+    api("/assignments"),
+  ]);
+  state.data.customers = customers.customers;
+  state.data.bookings = bookings.bookings;
+  state.data.drivers = drivers.drivers;
+  state.data.vehicles = vehicles.vehicles;
+  state.data.assignments = assignments.assignments;
+}
+
+async function loadActivity(limit = 12) {
+  try {
+    const res = await api(`/activity?limit=${limit}`);
+    state.data.activity = res.activity || [];
+  } catch {
+    state.data.activity = [];
+  }
+}
+
+async function renderDashboard() {
+  const [data] = await Promise.all([api("/dashboard"), loadCoreData()]);
+  const timing = tripTimingSummary(state.data.bookings);
+  content.innerHTML = `
+    <div class="row g-3 mb-3">
+      ${metric("Total Bookings", data.cards.total_bookings, "fa-calendar-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
+      ${metric("Active Trips", data.cards.active_trips, "fa-route", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
+      ${metric("Completed Trips", data.cards.completed_trips, "fa-circle-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
+      ${metric("Upcoming Trips", timing.upcoming, "fa-clock", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
+      ${metric("Recent Assignments", (data.recent_assignments || []).length, "fa-clipboard-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
+      ${metric("Next Pickup", timing.nextPickup, "fa-location-dot", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
+    </div>
+    <div class="row g-3 mb-3">
+      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
+      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Weekly Bookings</h3></div><div class="chart-container"><canvas id="weeklyChart"></canvas></div></div></div>
+      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Trip Status Overview</h3></div><div class="chart-container"><canvas id="statusChart"></canvas></div></div></div>
+    </div>
+    <div class="row g-3 mb-3">
+      <div class="col-lg-4">
+        <div class="card-lite panel fill-panel next-pickup-panel">
+          <div class="panel-title"><h3>Next Scheduled Pickup</h3></div>
+          ${nextPickupPanel(timing)}
+        </div>
+      </div>
+      <div class="col-lg-8">
+        ${tablePanel(
+          "Upcoming Trips",
+          upcomingTripRows(data.upcoming_trips),
+          "compact-table responsive-card-table dashboard-upcoming-table"
+       )}
+    </div>
+    </div>
+    <div class="row g-3">
+      <div class="col-12">${tablePanel("Recent Assignments", dashboardAssignmentRows(data.recent_assignments), "compact-table responsive-card-table dashboard-table")}</div>
+    </div>
+  `;
+  chart("dailyChart", "bar", data.daily_bookings, "#2563eb");
 
 async function api(path, options = {}) {
   showLoader(true);
@@ -581,7 +695,7 @@ function filterCrud(type) {
 }
 
 function bindRowActions(type) {
-  document.querySelectorAll("[data-action]").forEach((button) => {
+  document.querySelectorAll(".table-responsive [data-action]").forEach((button) => {
     button.addEventListener("click", async () => {
       const id = Number(button.closest("tr").dataset.id);
       if (button.dataset.action === "view") openTripDetailModal(id);
@@ -594,6 +708,7 @@ function bindRowActions(type) {
 function openEntityModal(type, item = null) {
   state.modalMode = { type, item };
   const config = configs[type];
+  if (!config || !state.modal) return;
   const fields = typeof config.fields === "function" ? config.fields() : config.fields;
   $("#modalTitle").textContent = `${item ? "Edit" : "Add"} ${config.title}`;
   setModalSaveVisible(true);
@@ -611,11 +726,33 @@ function fieldControl([name, label, type, options], item) {
     const opts = options.map((option) => {
       const val = Array.isArray(option) ? option[0] : option;
       const text = Array.isArray(option) ? option[1] : option;
-      return `<option value="${val}" ${String(val) === String(value) ? "selected" : ""}>${text}</option>`;
+      return `<option value="${escapeHtml(val)}" ${String(val) === String(value) ? "selected" : ""}>${escapeHtml(text)}</option>`;
     });
     return `<div class="col-md-6"><div class="form-floating"><select class="form-select" name="${name}" ${required}>${opts.join("")}</select><label>${label}</label></div></div>`;
   }
   return `<div class="col-md-6"><div class="form-floating"><input class="form-control" name="${name}" type="${type}" value="${escapeHtml(value)}" placeholder="${label}" ${required}><label>${label}</label></div></div>`;
+}
+
+function validateEntity(type, body) {
+  if (type === "customers") {
+    if (!/^[A-Za-z ]+$/.test(body.name)) { toast("Customer name must contain only letters", "danger"); return false; }
+    if (!/^[0-9]{10}$/.test(body.phone)) { toast("Phone number must be exactly 10 digits", "danger"); return false; }
+    if (body.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) { toast("Invalid email address", "danger"); return false; }
+  }
+  if (type === "drivers") {
+    if (!/^[0-9]{10}$/.test(body.phone)) { toast("Driver phone number must be 10 digits", "danger"); return false; }
+    if (Number(body.experience) < 0 || Number(body.experience) > 50) { toast("Experience must be between 0 and 50 years", "danger"); return false; }
+  }
+  if (type === "vehicles") {
+    if (Number(body.capacity) <= 0) { toast("Vehicle capacity must be greater than zero", "danger"); return false; }
+  }
+  if (type === "bookings") {
+    const tripDate = new Date(body.trip_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (tripDate < today && body.status !== "Completed") { toast("Trip date cannot be in the past", "danger"); return false; }
+  }
+  return true;
 }
 
 async function saveModalForm(event) {
@@ -624,83 +761,15 @@ async function saveModalForm(event) {
     await saveReassignment(event);
     return;
   }
+  if (!state.modalMode?.type) return;
   const { type, item } = state.modalMode;
   const config = configs[type];
+  if (!config) return;
   const body = Object.fromEntries(new FormData(event.target).entries());
   const localPaymentStatus = type === "bookings" ? body.payment_status : null;
   const localDriverStatus = type === "drivers" ? body.availability_status : null;
   if (type === "drivers") body.availability_status = apiDriverStatus(localDriverStatus);
-  // CUSTOMER VALIDATION
-if (type === "customers") {
-
-    if (!/^[A-Za-z ]+$/.test(body.name)) {
-        toast("Customer name must contain only letters", "danger");
-        return;
-    }
-
-    if (!/^[0-9]{10}$/.test(body.phone)) {
-        toast("Phone number must be exactly 10 digits", "danger");
-        return;
-    }
-
-    if (
-        body.email &&
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)
-    ) {
-        toast("Invalid email address", "danger");
-        return;
-    }
-}
-
-// DRIVER VALIDATION
-if (type === "drivers") {
-
-    if (!/^[0-9]{10}$/.test(body.phone)) {
-        toast("Driver phone number must be 10 digits", "danger");
-        return;
-    }
-
-    if (
-        Number(body.experience) < 0 ||
-        Number(body.experience) > 50
-    ) {
-        toast(
-            "Experience must be between 0 and 50 years",
-            "danger"
-        );
-        return;
-    }
-}
-
-// VEHICLE VALIDATION
-if (type === "vehicles") {
-
-    if (Number(body.capacity) <= 0) {
-        toast(
-            "Vehicle capacity must be greater than zero",
-            "danger"
-        );
-        return;
-    }
-}
-
-// BOOKING VALIDATION
-if (type === "bookings") {
-
-    const tripDate = new Date(body.trip_date);
-    const today = new Date();
-    const isCompletedBooking = body.status === "Completed";
-
-    today.setHours(0, 0, 0, 0);
-
-    if (tripDate < today && !isCompletedBooking) {
-        toast(
-            "Trip date cannot be in the past",
-            "danger"
-        );
-        return;
-    }
-}
+  if (!validateEntity(type, body)) return;
 
   try {
     const response = await api(item ? `${config.endpoint}/${item.id}` : config.endpoint, { method: item ? "PUT" : "POST", body });
@@ -712,7 +781,7 @@ if (type === "bookings") {
     if (type === "drivers") {
       saveDriverStatusOverride(item?.id || response.driver?.id, localDriverStatus);
     }
-    state.modal.hide();
+    state.modal?.hide();
     toast(`${config.title} saved`);
     await renderCrud(type);
   } catch (error) {
@@ -770,7 +839,7 @@ async function renderAssignments() {
 function selectField(name, label, options) {
   return `<div class="col-12"><div class="form-floating"><select class="form-select" name="${name}" required>
     <option value="">Select ${label.toLowerCase()}</option>
-    ${options.map((x) => `<option value="${x[0]}">${escapeHtml(x[1])}</option>`).join("")}
+    ${options.map((x) => `<option value="${escapeHtml(x[0])}">${escapeHtml(x[1])}</option>`).join("")}
   </select><label>${label}</label></div></div>`;
 }
 
@@ -825,6 +894,7 @@ async function saveAssignment(event) {
 }
 
 function openReassignModal(id) {
+  if (!state.modal) return;
   const assignment = state.data.assignments.find((item) => item.id === id);
   if (!canReassignAssignment(assignment)) {
     toast("Only active, non-completed assignments can be reassigned", "danger");
@@ -852,7 +922,7 @@ async function saveReassignment(event) {
     if (String(previous.driver_id) !== String(body.driver_id)) recordAssignmentAction("Driver changed", response.assignment, `${previous.driver_name} changed`);
     if (String(previous.vehicle_id) !== String(body.vehicle_id)) recordAssignmentAction("Vehicle changed", response.assignment, `${previous.vehicle_name} changed`);
     recordAssignmentAction("Status updated", response.assignment, "Assignment updated");
-    state.modal.hide();
+    state.modal?.hide();
     toast("Assignment updated");
     await renderAssignments();
   } catch (error) {
@@ -928,7 +998,7 @@ async function updateTripStatus(event) {
 function paymentControl(item) {
   if (item.status !== "Completed") return `<div class="payment-display">${badge(bookingPaymentStatus(item))}</div>`;
   return `<select class="form-select form-select-sm payment-status-select" data-payment-status="${item.id}" title="Payment status">
-    ${PAYMENT_STATUSES.map((status) => `<option value="${status}" ${status === bookingPaymentStatus(item) ? "selected" : ""}>${status}</option>`).join("")}
+    ${PAYMENT_STATUSES.map((status) => `<option value="${escapeHtml(status)}" ${status === bookingPaymentStatus(item) ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
   </select>`;
 }
 
@@ -951,9 +1021,12 @@ async function updatePaymentStatus(event) {
 
 async function renderReports(period = "daily") {
   const res = await api(`/reports?period=${period}`);
-  const totalAssignments = res.assignments.length;
-  const activeDrivers = res.driver_utilization.filter((item) => item.value > 0).length;
-  const activeVehicles = res.vehicle_utilization.filter((item) => item.value > 0).length;
+  const assignments = res.assignments || [];
+  const driverUtilization = res.driver_utilization || [];
+  const vehicleUtilization = res.vehicle_utilization || [];
+  const totalAssignments = assignments.length;
+  const activeDrivers = driverUtilization.filter((item) => item.value > 0).length;
+  const activeVehicles = vehicleUtilization.filter((item) => item.value > 0).length;
   const paidPayments = (res.payment_summary || []).find((item) => item.label === "Paid")?.value || 0;
   content.innerHTML = `
     <div class="toolbar">
@@ -980,14 +1053,16 @@ async function renderReports(period = "daily") {
       <div class="col-lg-6"><div class="card-lite panel"><div class="panel-title"><h3>Assignment Summary</h3></div>${summaryRows(res.assignment_summary || [])}</div></div>
     </div>
     <div class="row g-3 mb-3">
-      <div class="col-lg-6">${tablePanel("Driver Utilization Summary", summaryTableRows(res.driver_utilization))}</div>
-      <div class="col-lg-6">${tablePanel("Vehicle Utilization Summary", summaryTableRows(res.vehicle_utilization))}</div>
+      <div class="col-lg-6">${tablePanel("Driver Utilization Summary", summaryTableRows(driverUtilization))}</div>
+      <div class="col-lg-6">${tablePanel("Vehicle Utilization Summary", summaryTableRows(vehicleUtilization))}</div>
     </div>
-    ${tablePanel(`${capitalize(period)} Assignment Report`, assignmentRows(res.assignments))}
+    ${tablePanel(`${capitalize(period)} Assignment Report`, assignmentRows(assignments))}
   `;
   document.querySelectorAll("[data-period]").forEach((button) =>
     button.addEventListener("click", () =>
-        renderReports(button.dataset.period)
+        renderReports(button.dataset.period).catch((error) => {
+          content.innerHTML = `<div class="alert alert-danger">Unable to load reports. ${escapeHtml(error.message)}</div>`;
+        })
     )
 );
 
@@ -1015,8 +1090,8 @@ document.querySelectorAll("[data-export]").forEach((button) => {
 
 });
 
-chart("driverUtilChart", "bar", res.driver_utilization, "#2563eb");
-chart("vehicleUtilChart", "bar", res.vehicle_utilization, "#14b8a6");
+chart("driverUtilChart", "bar", driverUtilization, "#2563eb");
+chart("vehicleUtilChart", "bar", vehicleUtilization, "#14b8a6");
 }
 
 function tablePanel(title, rows, className = "") {
@@ -1126,9 +1201,19 @@ function modalItem(type, item) {
 
 function storageObject(key) {
   try {
-    return JSON.parse(localStorage.getItem(key) || "{}");
+    const value = JSON.parse(localStorage.getItem(key) || "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
   } catch {
     return {};
+  }
+}
+
+function storageArray(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
   }
 }
 
@@ -1200,12 +1285,16 @@ function canAssignSelection(driverId, vehicleId, currentAssignment = null) {
 }
 
 function tripDateTime(booking) {
-  return new Date(`${booking.trip_date}T${booking.trip_time || "00:00"}`);
+  const value = new Date(`${booking?.trip_date || ""}T${booking?.trip_time || "00:00"}`);
+  return Number.isNaN(value.getTime()) ? null : value;
 }
 
 function tripTimingSummary(bookings) {
   const now = new Date();
-  const upcomingTrips = bookings.filter((booking) => tripDateTime(booking) > now && booking.status !== "Completed");
+  const upcomingTrips = bookings.filter((booking) => {
+    const startsAt = tripDateTime(booking);
+    return startsAt && startsAt > now && booking.status !== "Completed";
+  });
   const next = upcomingTrips.sort((a, b) => tripDateTime(a) - tripDateTime(b))[0];
   return {
     upcoming: upcomingTrips.length,
@@ -1244,7 +1333,7 @@ function coordinatorAlerts() {
     driversOnLeave: state.data.drivers.filter((driver) => ["Leave", "Unavailable"].includes(driverStatus(driver))).length,
     upcomingTrips: state.data.bookings.filter((booking) => {
       const startsAt = tripDateTime(booking);
-      return startsAt >= now && startsAt <= soonLimit && booking.status !== "Completed";
+      return startsAt && startsAt >= now && startsAt <= soonLimit && booking.status !== "Completed";
     }).length,
   };
   state.data.drivers.filter((driver) => ["Leave", "Unavailable"].includes(driverStatus(driver))).forEach((driver) => {
@@ -1264,14 +1353,28 @@ function coordinatorAlerts() {
     if (booking.follow_up_date && new Date(`${booking.follow_up_date}T00:00`) < new Date(new Date().toDateString()) && (booking.follow_up_status || "Pending") === "Pending") {
       items.push({ type: "Overdue follow-up", message: `${booking.booking_code} - ${booking.follow_up_note || booking.follow_up_date}`, severity: "High" });
     }
-    if (startsAt >= now && startsAt <= soonLimit && booking.status !== "Completed") {
+    if (startsAt && startsAt >= now && startsAt <= soonLimit && booking.status !== "Completed") {
       items.push({ type: "Upcoming trip", message: `${booking.booking_code} at ${booking.trip_time}`, severity: "Low" });
     }
-    if (startsAt < now && !["Trip Started", "Completed"].includes(booking.status)) {
+    if (startsAt && startsAt < now && !["Trip Started", "Completed"].includes(booking.status)) {
       items.push({ type: "Trip delayed", message: `${booking.booking_code} was scheduled for ${booking.trip_date} ${booking.trip_time}`, severity: "Medium" });
     }
-    if (booking.assignment && (driverStatus({ id: booking.assignment.driver_id, availability_status: "Assigned" }) === "Unavailable" || booking.assignment.vehicle_status === "Maintenance")) {
-      items.push({ type: "Assignment conflict", message: booking.booking_code, severity: "High" });
+    if (booking.assignment) {
+      const assignedDriver = state.data.drivers.find(
+        (d) => d.id === booking.assignment.driver_id
+      );
+
+      if (
+        (assignedDriver &&
+          ["Leave", "Unavailable"].includes(driverStatus(assignedDriver))) ||
+        booking.assignment.vehicle_status === "Maintenance"
+      ) {
+        items.push({
+          type: "Assignment conflict",
+          message: booking.booking_code,
+          severity: "High",
+        });
+      }
     }
   });
   state.data.assignments.forEach((assignment) => {
@@ -1286,7 +1389,8 @@ function coordinatorAlerts() {
 }
 
 function getCoordinatorWindowHours() {
-  return Number(localStorage.getItem("mtt_coordinator_window_hours") || 24);
+  const hours = Number(localStorage.getItem("mtt_coordinator_window_hours") || 24);
+  return [2, 6, 12, 24, 48].includes(hours) ? hours : 24;
 }
 
 async function renderCoordinator() {
@@ -1313,7 +1417,7 @@ async function renderCoordinator() {
       upcoming_trips: state.data.bookings.filter((booking) => {
         const startsAt = tripDateTime(booking);
         const now = new Date();
-        return startsAt >= now && startsAt <= new Date(now.getTime() + hours * 60 * 60 * 1000) && booking.status !== "Completed";
+        return startsAt && startsAt >= now && startsAt <= new Date(now.getTime() + hours * 60 * 60 * 1000) && booking.status !== "Completed";
       }),
       pending_payments: state.data.bookings.filter((booking) => bookingPaymentStatus(booking) !== "Paid"),
       overdue_follow_ups: state.data.bookings.filter((booking) => booking.follow_up_date && new Date(`${booking.follow_up_date}T00:00`) < new Date(new Date().toDateString()) && (booking.follow_up_status || "Pending") === "Pending"),
@@ -1370,10 +1474,19 @@ function applyResponsiveTableLabels(root = content) {
 }
 
 function recordAssignmentAction(action, assignment, detail = "") {
-  return { action, assignment, detail };
+  const history = storageArray(STORAGE_KEYS.actionHistory);
+  history.unshift({
+    action,
+    booking_code: assignment?.booking_code,
+    driver_name: assignment?.driver_name,
+    vehicle_name: assignment?.vehicle_name,
+    detail,
+    created_at: new Date().toISOString()
+  });
+  localStorage.setItem(STORAGE_KEYS.actionHistory, JSON.stringify(history.slice(0, 100)));
 }
 
-function normalizeCoordinatorData(data) {
+function normalizeCoordinatorData(data = {}) {
   const byId = (rows) => {
     const seen = new Set();
     return (rows || []).filter((item) => {
@@ -1394,7 +1507,7 @@ function normalizeCoordinatorData(data) {
   return {
     ...data,
     counters: {
-      ...data.counters,
+      ...(data.counters || {}),
       unassigned_bookings: unassigned.length,
       pending_payments: pendingPayments.length,
       upcoming_trips: upcoming.length,
@@ -1413,20 +1526,12 @@ function normalizeCoordinatorData(data) {
 }
 
 function recordBookingAction(action, booking, detail = "") {
-  return { action, booking, detail };
+  recordAssignmentAction(action, booking, detail);
 }
 
 function recentActionHistory(limit = 12) {
-  return (state.data.activity || []).slice(0, limit);
+  return storageArray(STORAGE_KEYS.actionHistory).slice(0, limit);
 }
-
-function actionHistoryList(limit = 12) {
-  const history = recentActionHistory(limit);
-  if (!history.length) return `<div class="text-center text-secondary py-4">No action history recorded yet</div>`;
-  return activityList(history);
-}
-
-function activityList(history) {
   if (!history.length) return `<div class="text-center text-secondary py-4">No action history recorded yet</div>`;
   return `<div class="timeline-list compact-history">${history.map((item) => `
     <div class="timeline-item">
@@ -1467,21 +1572,22 @@ function followUpRows(rows) {
   <tbody>${rows.map((item) => `<tr><td><strong class="booking-id">${escapeHtml(item.booking_code)}</strong></td><td>${escapeHtml(item.customer_name || "-")}</td><td>${escapeHtml(item.follow_up_date || "-")}</td><td>${escapeHtml(item.follow_up_note || "-")}</td><td>${badge(item.follow_up_status || "Pending")}</td></tr>`).join("") || emptyRow(5)}</tbody>`;
 }
 
-function recordTripHistory(bookingId, status, remarks = "") {
-  return { bookingId, status, remarks };
-}
-
 async function tripStatusHistory(booking) {
+  const fallback = [{ status: booking.status, remarks: "Current booking status", created_at: booking.updated_at || new Date().toISOString() }];
   try {
     const res = await api(`/trips/${booking.id}/history`);
     const history = res.history || [];
     if (history.length) return history;
-  } catch {}
-  return [{ status: booking.status, remarks: "Current booking status", created_at: booking.updated_at || new Date().toISOString() }];
+  } catch {
+    return fallback;
+  }
+  return fallback;
 }
 
 async function openTripDetailModal(id, sourceRows = null) {
-  const booking = (sourceRows || state.data.bookings || state.data.trips).find((item) => Number(item.id) === Number(id));
+  if (!state.modal) return;
+  const rows = sourceRows || (state.data.bookings.length ? state.data.bookings : state.data.trips);
+  const booking = rows.find((item) => Number(item.id) === Number(id));
   if (!booking) return;
   const history = await tripStatusHistory(booking);
   const assignment = booking.assignment || state.data.assignments.find((item) => item.booking_id === booking.id && item.is_active);
@@ -1511,6 +1617,7 @@ async function openTripDetailModal(id, sourceRows = null) {
 }
 
 function openAssignmentDetailModal(id) {
+  if (!state.modal) return;
   const assignment = state.data.assignments.find((item) => Number(item.id) === Number(id));
   if (!assignment) return;
   state.modalMode = { type: "assignment-details", item: assignment };
@@ -1543,7 +1650,7 @@ function openAssignmentDetailModal(id) {
 }
 
 function detailBlock(title, lines) {
-  return `<div class="detail-card"><h4>${title}</h4>${lines.filter(Boolean).map((line) => `<p>${escapeHtml(line)}</p>`).join("") || "<p>-</p>"}</div>`;
+  return `<div class="detail-card"><h4>${escapeHtml(title)}</h4>${lines.filter(Boolean).map((line) => `<p>${escapeHtml(line)}</p>`).join("") || "<p>-</p>"}</div>`;
 }
 
 function setModalSaveVisible(show) {
@@ -1552,11 +1659,11 @@ function setModalSaveVisible(show) {
 }
 
 function badge(status) {
-  return `<span class="badge-soft status-${String(status).replaceAll(" ", "-")}">${status}</span>`;
+  const value = String(status || "-");
+  return `<span class="badge-soft status-${escapeHtml(value.replaceAll(" ", "-"))}">${escapeHtml(value)}</span>`;
 }
 
 function profileCell(name, meta, type) {
-  const initials = String(name || "NA").split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
   const icon = type === "driver" ? "fa-id-card" : "fa-user";
   return `<div class="profile-cell"><span class="avatar"><i class="fa-solid ${icon}"></i></span><div><strong class="text-nowrap">${escapeHtml(name || "-")}</strong><small>${escapeHtml(meta || "Profile")}</small></div></div>`;
 }
@@ -1580,8 +1687,11 @@ function emptyRow(cols) {
 }
 
 function chart(id, type, data, colors) {
+
+  data = data || [];
+
   const ctx = document.getElementById(id);
-  if (!ctx) return;
+  if (!ctx || typeof Chart === "undefined") return;
   state.charts[id]?.destroy();
   state.charts[id] = new Chart(ctx, {
     type,
@@ -1626,13 +1736,15 @@ function chart(id, type, data, colors) {
 
 function formatDateTime(value) {
   if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
   return new Intl.DateTimeFormat("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(value));
+  }).format(date);
 }
 
 function capitalize(value) {
@@ -1649,6 +1761,7 @@ function detectModule() {
 function togglePassword() {
   const input = $("#loginPassword");
   const icon = $("#togglePassword i");
+  if (!input || !icon) return;
   const showing = input.type === "text";
   input.type = showing ? "password" : "text";
   icon.className = showing ? "fa-regular fa-eye" : "fa-regular fa-eye-slash";

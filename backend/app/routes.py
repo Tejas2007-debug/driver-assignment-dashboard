@@ -5,9 +5,11 @@ from io import BytesIO
 from flask import send_file
 from openpyxl import Workbook
 
+import re
 from datetime import date, datetime, timedelta
 
 from flask import Blueprint, jsonify, request, session
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func, or_
 
 from .extensions import db
@@ -15,8 +17,11 @@ from .models import ActivityLog, Assignment, Booking, Customer, Driver, TripHist
 from .utils import (
     BOOKING_STATUSES,
     DRIVER_STATUSES,
+    FOLLOW_UP_STATUSES,
+    PAYMENT_STATUSES,
     VEHICLE_STATUSES,
     has_schedule_conflict,
+    is_valid_status_transition,
     login_required,
     parse_date,
     parse_time,
@@ -37,6 +42,59 @@ def ok(data=None, status=200):
 
 def fail(message, status=400):
     return jsonify({"message": message}), status
+
+
+def commit_or_integrity_error():
+    try:
+        db.session.commit()
+        return None
+    except IntegrityError:
+        db.session.rollback()
+        return fail("Duplicate or invalid record. Please check unique fields and try again.", 409)
+
+
+def parse_int_field(payload, field, label):
+    try:
+        return int(payload[field])
+    except (KeyError, TypeError, ValueError):
+        raise ValueError(f"{label} must be a valid number")
+
+
+def clean_text(value):
+    return str(value or "").strip()
+
+
+def validate_phone(value, label="Phone number"):
+    if not re.fullmatch(r"\d{10}", clean_text(value)):
+        return f"{label} must be exactly 10 digits"
+    return None
+
+
+def validate_email(value):
+    if value and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", clean_text(value)):
+        return "Invalid email address"
+    return None
+
+
+def conflict_message(kind, conflict):
+    booking = conflict.booking
+    return (
+        f"{kind} schedule conflict with booking {booking.booking_code} "
+        f"on {booking.trip_date.isoformat()} at {booking.trip_time.strftime('%H:%M')}"
+    )
+
+
+def report_window(period):
+    today = date.today()
+    days = {"daily": 1, "weekly": 7, "monthly": 30}.get(period, 1)
+    return today - timedelta(days=days - 1)
+
+
+def apply_trip_completion_effects(booking):
+    active_assignment = Assignment.query.filter_by(booking_id=booking.id, is_active=True).first()
+    if active_assignment:
+        active_assignment.driver.availability_status = "Available"
+        active_assignment.vehicle.status = "Available"
 
 
 def current_user_id():
@@ -171,9 +229,14 @@ def create_customer():
     error = require_fields(payload, ["name", "phone"])
     if error:
         return fail(error)
-    customer = Customer(name=payload["name"], phone=payload["phone"], email=payload.get("email"), address=payload.get("address"))
+    error = validate_phone(payload.get("phone")) or validate_email(payload.get("email"))
+    if error:
+        return fail(error)
+    customer = Customer(name=clean_text(payload["name"]), phone=clean_text(payload["phone"]), email=clean_text(payload.get("email")), address=payload.get("address"))
     db.session.add(customer)
-    db.session.commit()
+    error_response = commit_or_integrity_error()
+    if error_response:
+        return error_response
     return ok({"customer": customer.to_dict()}, 201)
 
 
@@ -202,12 +265,20 @@ def customer_detail(customer_id):
 
     payload = request.get_json() or {}
 
-    customer.name = payload.get("name", customer.name)
-    customer.phone = payload.get("phone", customer.phone)
-    customer.email = payload.get("email", customer.email)
+    phone = payload.get("phone", customer.phone)
+    email = payload.get("email", customer.email)
+    error = validate_phone(phone) or validate_email(email)
+    if error:
+        return fail(error)
+
+    customer.name = clean_text(payload.get("name", customer.name))
+    customer.phone = clean_text(phone)
+    customer.email = clean_text(email)
     customer.address = payload.get("address", customer.address)
 
-    db.session.commit()
+    error_response = commit_or_integrity_error()
+    if error_response:
+        return error_response
 
     return ok({"customer": customer.to_dict()})
 
@@ -229,17 +300,28 @@ def create_driver():
     error = require_fields(payload, ["name", "phone", "license_number", "experience"])
     if error:
         return fail(error)
+    error = validate_phone(payload.get("phone"), "Driver phone number")
+    if error:
+        return fail(error)
+    try:
+        experience = int(payload["experience"])
+    except (TypeError, ValueError):
+        return fail("Experience must be a valid number")
+    if experience < 0 or experience > 50:
+        return fail("Experience must be between 0 and 50 years")
     driver = Driver(
         name=payload["name"],
         phone=payload["phone"],
         license_number=payload["license_number"],
-        experience=int(payload["experience"]),
+        experience=experience,
         availability_status=payload.get("availability_status", "Available"),
     )
     if driver.availability_status not in DRIVER_STATUSES:
         return fail("Invalid driver availability status")
     db.session.add(driver)
-    db.session.commit()
+    error_response = commit_or_integrity_error()
+    if error_response:
+        return error_response
     return ok({"driver": driver.to_dict()}, 201)
 
 
@@ -273,6 +355,15 @@ def driver_detail(driver_id):
 
     if status not in DRIVER_STATUSES:
         return fail("Invalid driver availability status")
+    error = validate_phone(payload.get("phone", driver.phone), "Driver phone number")
+    if error:
+        return fail(error)
+    try:
+        experience = int(payload.get("experience", driver.experience))
+    except (TypeError, ValueError):
+        return fail("Experience must be a valid number")
+    if experience < 0 or experience > 50:
+        return fail("Experience must be between 0 and 50 years")
 
     driver.name = payload.get("name", driver.name)
     driver.phone = payload.get("phone", driver.phone)
@@ -280,12 +371,12 @@ def driver_detail(driver_id):
         "license_number",
         driver.license_number
     )
-    driver.experience = int(
-        payload.get("experience", driver.experience)
-    )
+    driver.experience = experience
     driver.availability_status = status
 
-    db.session.commit()
+    error_response = commit_or_integrity_error()
+    if error_response:
+        return error_response
 
     return ok({"driver": driver.to_dict()})
 
@@ -308,17 +399,25 @@ def create_vehicle():
     error = require_fields(payload, ["name", "vehicle_number", "vehicle_type", "capacity"])
     if error:
         return fail(error)
+    try:
+        capacity = int(payload["capacity"])
+    except (TypeError, ValueError):
+        return fail("Vehicle capacity must be a valid number")
+    if capacity <= 0:
+        return fail("Vehicle capacity must be greater than zero")
     vehicle = Vehicle(
         name=payload["name"],
         vehicle_number=payload["vehicle_number"],
         vehicle_type=payload["vehicle_type"],
-        capacity=int(payload["capacity"]),
+        capacity=capacity,
         status=payload.get("status", "Available"),
     )
     if vehicle.status not in VEHICLE_STATUSES:
         return fail("Invalid vehicle status")
     db.session.add(vehicle)
-    db.session.commit()
+    error_response = commit_or_integrity_error()
+    if error_response:
+        return error_response
     return ok({"vehicle": vehicle.to_dict()}, 201)
 
 
@@ -352,6 +451,12 @@ def vehicle_detail(vehicle_id):
 
     if status not in VEHICLE_STATUSES:
         return fail("Invalid vehicle status")
+    try:
+        capacity = int(payload.get("capacity", vehicle.capacity))
+    except (TypeError, ValueError):
+        return fail("Vehicle capacity must be a valid number")
+    if capacity <= 0:
+        return fail("Vehicle capacity must be greater than zero")
 
     vehicle.name = payload.get("name", vehicle.name)
     vehicle.vehicle_number = payload.get(
@@ -362,12 +467,12 @@ def vehicle_detail(vehicle_id):
         "vehicle_type",
         vehicle.vehicle_type
     )
-    vehicle.capacity = int(
-        payload.get("capacity", vehicle.capacity)
-    )
+    vehicle.capacity = capacity
     vehicle.status = status
 
-    db.session.commit()
+    error_response = commit_or_integrity_error()
+    if error_response:
+        return error_response
 
     return ok({"vehicle": vehicle.to_dict()})
 
@@ -400,27 +505,46 @@ def create_booking():
     error = require_fields(payload, ["customer_id", "pickup_location", "drop_location", "trip_date", "trip_time", "vehicle_type"])
     if error:
         return fail(error)
+    try:
+        customer_id = parse_int_field(payload, "customer_id", "Customer")
+        trip_date = parse_date(payload["trip_date"])
+        trip_time = parse_time(payload["trip_time"])
+    except ValueError as exc:
+        return fail(str(exc))
+    if not Customer.query.get(customer_id):
+        return fail("Selected customer does not exist")
+    if trip_date < date.today():
+        return fail("Trip date cannot be in the past")
+    status = payload.get("status", "Pending")
+    payment_status = payload.get("payment_status", "Pending")
+    follow_up_status = payload.get("follow_up_status", "Pending")
+    if status not in BOOKING_STATUSES:
+        return fail("Invalid booking status")
+    if payment_status not in PAYMENT_STATUSES:
+        return fail("Invalid payment status")
+    if follow_up_status not in FOLLOW_UP_STATUSES:
+        return fail("Invalid follow-up status")
     booking_count = Booking.query.count() + 1
     booking = Booking(
         booking_code=payload.get("booking_code") or f"MTT-{datetime.utcnow().strftime('%Y%m%d')}-{booking_count:04d}",
         invoice_number=payload.get("invoice_number") or next_invoice_number(),
-        customer_id=int(payload["customer_id"]),
-        pickup_location=payload["pickup_location"],
-        drop_location=payload["drop_location"],
-        trip_date=parse_date(payload["trip_date"]),
-        trip_time=parse_time(payload["trip_time"]),
-        vehicle_type=payload["vehicle_type"],
-        status=payload.get("status", "Pending"),
-        payment_status=payload.get("payment_status", "Pending"),
+        customer_id=customer_id,
+        pickup_location=clean_text(payload["pickup_location"]),
+        drop_location=clean_text(payload["drop_location"]),
+        trip_date=trip_date,
+        trip_time=trip_time,
+        vehicle_type=clean_text(payload["vehicle_type"]),
+        status=status,
+        payment_status=payment_status,
         follow_up_date=parse_date(payload["follow_up_date"]) if payload.get("follow_up_date") else None,
         follow_up_note=payload.get("follow_up_note"),
-        follow_up_status=payload.get("follow_up_status", "Pending"),
+        follow_up_status=follow_up_status,
     )
-    if booking.status not in BOOKING_STATUSES:
-        return fail("Invalid booking status")
     db.session.add(booking)
     log_action("Booking Created", booking=booking, detail="Booking record created")
-    db.session.commit()
+    error_response = commit_or_integrity_error()
+    if error_response:
+        return error_response
     return ok({"booking": booking.to_dict()}, 201)
 
 
@@ -450,15 +574,33 @@ def booking_detail(booking_id):
     payload = request.get_json() or {}
 
     status = payload.get("status", booking.status)
+    payment_status = payload.get("payment_status", booking.payment_status)
+    follow_up_status = payload.get("follow_up_status", booking.follow_up_status)
     old_payment_status = booking.payment_status
     old_status = booking.status
 
     if status not in BOOKING_STATUSES:
         return fail("Invalid booking status")
+    if payment_status not in PAYMENT_STATUSES:
+        return fail("Invalid payment status")
+    if follow_up_status not in FOLLOW_UP_STATUSES:
+        return fail("Invalid follow-up status")
+    if status != booking.status and not is_valid_status_transition(booking.status, status):
+        return fail(f"Cannot change booking status from {booking.status} to {status}")
+    try:
+        customer_id = int(payload.get("customer_id", booking.customer_id))
+        trip_date = parse_date(payload.get("trip_date", booking.trip_date.isoformat()))
+        trip_time = parse_time(payload.get("trip_time", booking.trip_time.strftime("%H:%M")))
+    except (TypeError, ValueError):
+        return fail("Booking contains an invalid customer, date, or time")
+    if not Customer.query.get(customer_id):
+        return fail("Selected customer does not exist")
+    if trip_date < date.today() and status != "Completed":
+        return fail("Trip date cannot be in the past")
 
-    booking.customer_id = int(
-        payload.get("customer_id", booking.customer_id)
-    )
+    date_or_time_changed = trip_date != booking.trip_date or trip_time != booking.trip_time
+
+    booking.customer_id = customer_id
     booking.pickup_location = payload.get(
         "pickup_location",
         booking.pickup_location
@@ -467,36 +609,40 @@ def booking_detail(booking_id):
         "drop_location",
         booking.drop_location
     )
-    booking.trip_date = parse_date(
-        payload.get(
-            "trip_date",
-            booking.trip_date.isoformat()
-        )
-    )
-    booking.trip_time = parse_time(
-        payload.get(
-            "trip_time",
-            booking.trip_time.strftime("%H:%M")
-        )
-    )
+    booking.trip_date = trip_date
+    booking.trip_time = trip_time
     booking.vehicle_type = payload.get(
         "vehicle_type",
         booking.vehicle_type
     )
     booking.status = status
-    booking.payment_status = payload.get("payment_status", booking.payment_status)
+    booking.payment_status = payment_status
     booking.follow_up_date = parse_date(payload["follow_up_date"]) if payload.get("follow_up_date") else booking.follow_up_date
     booking.follow_up_note = payload.get("follow_up_note", booking.follow_up_note)
-    booking.follow_up_status = payload.get("follow_up_status", booking.follow_up_status)
+    booking.follow_up_status = follow_up_status
     if payload.get("invoice_number"):
         booking.invoice_number = payload.get("invoice_number")
+
+    active_assignment = Assignment.query.filter_by(booking_id=booking.id, is_active=True).first()
+    if active_assignment and date_or_time_changed:
+        driver_conflict = has_schedule_conflict(booking, driver_id=active_assignment.driver_id, exclude_assignment_id=active_assignment.id)
+        if driver_conflict:
+            return fail(conflict_message("Driver", driver_conflict))
+        vehicle_conflict = has_schedule_conflict(booking, vehicle_id=active_assignment.vehicle_id, exclude_assignment_id=active_assignment.id)
+        if vehicle_conflict:
+            return fail(conflict_message("Vehicle", vehicle_conflict))
 
     log_action("Booking Updated", booking=booking, detail="Booking record updated")
     if old_payment_status != booking.payment_status:
         log_action("Payment Updated", booking=booking, detail=f"Payment changed to {booking.payment_status}")
     if old_status != booking.status:
         log_action("Status Changed", booking=booking, detail=f"Status changed to {booking.status}")
-    db.session.commit()
+        db.session.add(TripHistory(booking=booking, status=booking.status, remarks="Booking status updated", changed_by=current_user_id()))
+    if booking.status == "Completed" and old_status != "Completed":
+        apply_trip_completion_effects(booking)
+    error_response = commit_or_integrity_error()
+    if error_response:
+        return error_response
 
     return ok({"booking": booking.to_dict()})
 
@@ -523,10 +669,12 @@ def create_assignment():
         return fail("Selected driver is unavailable")
     if vehicle.status == "Maintenance":
         return fail("Selected vehicle is under maintenance")
-    if has_schedule_conflict(booking, driver_id=driver.id):
-        return fail("Driver schedule conflict detected")
-    if has_schedule_conflict(booking, vehicle_id=vehicle.id):
-        return fail("Vehicle schedule conflict detected")
+    driver_conflict = has_schedule_conflict(booking, driver_id=driver.id)
+    if driver_conflict:
+        return fail(conflict_message("Driver", driver_conflict))
+    vehicle_conflict = has_schedule_conflict(booking, vehicle_id=vehicle.id)
+    if vehicle_conflict:
+        return fail(conflict_message("Vehicle", vehicle_conflict))
 
     assignment = Assignment(
         booking=booking,
@@ -543,7 +691,9 @@ def create_assignment():
     db.session.add(TripHistory(booking=booking, status="Driver Assigned", remarks="Driver and vehicle assigned", changed_by=current_user_id()))
     log_action("Driver Assigned", booking=booking, assignment=assignment, detail=driver.name)
     log_action("Vehicle Assigned", booking=booking, assignment=assignment, detail=vehicle.vehicle_number)
-    db.session.commit()
+    error_response = commit_or_integrity_error()
+    if error_response:
+        return error_response
     return ok({"assignment": assignment.to_dict()}, 201)
 
 
@@ -551,6 +701,10 @@ def create_assignment():
 @login_required
 def reassign(assignment_id):
     assignment = Assignment.query.get_or_404(assignment_id)
+    if not assignment.is_active:
+        return fail("Inactive assignments cannot be reassigned")
+    if assignment.booking.status == "Completed":
+        return fail("Completed trip assignments cannot be reassigned")
     payload = request.get_json() or {}
     driver = Driver.query.get_or_404(int(payload.get("driver_id", assignment.driver_id)))
     vehicle = Vehicle.query.get_or_404(int(payload.get("vehicle_id", assignment.vehicle_id)))
@@ -558,10 +712,12 @@ def reassign(assignment_id):
         return fail("Selected driver is unavailable")
     if vehicle.status == "Maintenance":
         return fail("Selected vehicle is under maintenance")
-    if has_schedule_conflict(assignment.booking, driver_id=driver.id, exclude_assignment_id=assignment.id):
-        return fail("Driver schedule conflict detected")
-    if has_schedule_conflict(assignment.booking, vehicle_id=vehicle.id, exclude_assignment_id=assignment.id):
-        return fail("Vehicle schedule conflict detected")
+    driver_conflict = has_schedule_conflict(assignment.booking, driver_id=driver.id, exclude_assignment_id=assignment.id)
+    if driver_conflict:
+        return fail(conflict_message("Driver", driver_conflict))
+    vehicle_conflict = has_schedule_conflict(assignment.booking, vehicle_id=vehicle.id, exclude_assignment_id=assignment.id)
+    if vehicle_conflict:
+        return fail(conflict_message("Vehicle", vehicle_conflict))
 
     old_driver = assignment.driver
     old_vehicle = assignment.vehicle
@@ -587,7 +743,9 @@ def reassign(assignment_id):
     if old_vehicle.id != vehicle.id:
         log_action("Vehicle Assigned", booking=assignment.booking, assignment=new_assignment, detail=f"Reassigned to {vehicle.vehicle_number}")
     log_action("Status Changed", booking=assignment.booking, assignment=new_assignment, detail="Assignment updated")
-    db.session.commit()
+    error_response = commit_or_integrity_error()
+    if error_response:
+        return error_response
     return ok({"assignment": new_assignment.to_dict()})
 
 
@@ -598,6 +756,14 @@ def trips():
     return ok({"trips": [booking.to_dict() for booking in bookings]})
 
 
+@api_bp.get("/trips/<int:booking_id>/history")
+@login_required
+def trip_history(booking_id):
+    Booking.query.get_or_404(booking_id)
+    rows = TripHistory.query.filter_by(booking_id=booking_id).order_by(TripHistory.created_at.desc()).all()
+    return ok({"history": [item.to_dict() for item in rows]})
+
+
 @api_bp.put("/trips/<int:booking_id>/status")
 @login_required
 def update_trip_status(booking_id):
@@ -606,6 +772,8 @@ def update_trip_status(booking_id):
     status = payload.get("status")
     if status not in BOOKING_STATUSES:
         return fail("Invalid booking status")
+    if not is_valid_status_transition(booking.status, status):
+        return fail(f"Cannot change trip status from {booking.status} to {status}")
     booking.status = status
     db.session.add(TripHistory(booking=booking, status=status, remarks=payload.get("remarks"), changed_by=current_user_id()))
     if status == "Trip Started":
@@ -615,11 +783,10 @@ def update_trip_status(booking_id):
     else:
         log_action("Status Changed", booking=booking, detail=f"Trip status changed to {status}")
     if status == "Completed":
-        active_assignment = Assignment.query.filter_by(booking_id=booking.id, is_active=True).first()
-        if active_assignment:
-            active_assignment.driver.availability_status = "Available"
-            active_assignment.vehicle.status = "Available"
-    db.session.commit()
+        apply_trip_completion_effects(booking)
+    error_response = commit_or_integrity_error()
+    if error_response:
+        return error_response
     return ok({"booking": booking.to_dict()})
 
 
@@ -674,14 +841,14 @@ def coordinator():
 @login_required
 def reports():
     period = request.args.get("period", "daily")
-    today = date.today()
-    days = {"daily": 1, "weekly": 7, "monthly": 30}.get(period, 1)
-    start = today - timedelta(days=days - 1)
+    start = report_window(period)
 
     assignments = Assignment.query.join(Booking).filter(Booking.trip_date >= start).order_by(Booking.trip_date.desc()).all()
     driver_utilization = (
         db.session.query(Driver.name, func.count(Assignment.id))
         .outerjoin(Assignment)
+        .outerjoin(Booking, Assignment.booking_id == Booking.id)
+        .filter(or_(Booking.id.is_(None), Booking.trip_date >= start))
         .group_by(Driver.id)
         .order_by(func.count(Assignment.id).desc())
         .all()
@@ -689,6 +856,8 @@ def reports():
     vehicle_utilization = (
         db.session.query(Vehicle.name, func.count(Assignment.id))
         .outerjoin(Assignment)
+        .outerjoin(Booking, Assignment.booking_id == Booking.id)
+        .filter(or_(Booking.id.is_(None), Booking.trip_date >= start))
         .group_by(Vehicle.id)
         .order_by(func.count(Assignment.id).desc())
         .all()
@@ -700,10 +869,26 @@ def reports():
             "assignments": [item.to_dict() for item in assignments],
             "driver_utilization": [{"label": item[0], "value": item[1]} for item in driver_utilization],
             "vehicle_utilization": [{"label": item[0], "value": item[1]} for item in vehicle_utilization],
-            "payment_summary": [{"label": item[0], "value": item[1]} for item in db.session.query(Booking.payment_status, func.count(Booking.id)).group_by(Booking.payment_status).all()],
-            "assignment_summary": [{"label": item[0], "value": item[1]} for item in db.session.query(Booking.status, func.count(Booking.id)).group_by(Booking.status).all()],
+            "payment_summary": [{"label": item[0], "value": item[1]} for item in db.session.query(Booking.payment_status, func.count(Booking.id)).filter(Booking.trip_date >= start).group_by(Booking.payment_status).all()],
+            "assignment_summary": [{"label": item[0], "value": item[1]} for item in db.session.query(Booking.status, func.count(Booking.id)).filter(Booking.trip_date >= start).group_by(Booking.status).all()],
         }
     )
+
+
+@api_bp.get("/activity")
+@login_required
+def activity():
+    limit = min(int(request.args.get("limit", 12)), 50)
+    rows = ActivityLog.query.order_by(ActivityLog.created_at.desc()).limit(limit).all()
+    return ok({"activity": [item.to_dict() for item in rows]})
+
+
+def assignments_for_export():
+    period = request.args.get("period", "daily")
+    start = report_window(period)
+    return Assignment.query.join(Booking).filter(Booking.trip_date >= start).order_by(Booking.trip_date.desc()).all()
+
+
 @api_bp.get("/reports/export/excel")
 @login_required
 def export_excel():
@@ -722,7 +907,7 @@ def export_excel():
         "Status"
     ])
 
-    assignments = Assignment.query.all()
+    assignments = assignments_for_export()
 
     for assignment in assignments:
         booking = assignment.booking
@@ -769,7 +954,7 @@ def export_pdf():
         "Status"
     ]]
 
-    assignments = Assignment.query.all()
+    assignments = assignments_for_export()
 
     for assignment in assignments:
 

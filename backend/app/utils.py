@@ -10,25 +10,20 @@ BOOKING_STATUSES = {
     "Pending",
     "Confirmed",
     "Driver Assigned",
-    "Vehicle Assigned",
     "Trip Started",
-    "In Progress",
     "Completed",
-    "Cancelled",
 }
-PAYMENT_STATUSES = {"Pending", "Partial", "Paid", "Refunded"}
+PAYMENT_STATUSES = {"Pending", "Partial", "Paid"}
+FOLLOW_UP_STATUSES = {"Pending", "Completed", "Missed"}
 DRIVER_STATUSES = {"Available", "Assigned", "Unavailable"}
 VEHICLE_STATUSES = {"Available", "Assigned", "Maintenance"}
 
 STATUS_TRANSITIONS = {
-    "Pending": {"Confirmed", "Cancelled"},
-    "Confirmed": {"Driver Assigned", "Cancelled"},
-    "Driver Assigned": {"Vehicle Assigned", "Cancelled"},
-    "Vehicle Assigned": {"Trip Started", "Cancelled"},
-    "Trip Started": {"In Progress", "Cancelled"},
-    "In Progress": {"Completed", "Cancelled"},
+    "Pending": {"Confirmed"},
+    "Confirmed": {"Driver Assigned"},
+    "Driver Assigned": {"Trip Started"},
+    "Trip Started": {"Completed"},
     "Completed": set(),
-    "Cancelled": set(),
 }
 
 
@@ -66,7 +61,7 @@ def has_schedule_conflict(booking, driver_id=None, vehicle_id=None, exclude_assi
         query = query.filter(Assignment.vehicle_id == vehicle_id)
 
     for assignment in query.all():
-        if assignment.booking.status in {"Completed", "Cancelled"}:
+        if assignment.booking.status == "Completed":
             continue
         other_start, other_end = trip_window(assignment.booking)
         if start < other_end and end > other_start:

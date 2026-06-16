@@ -14,7 +14,7 @@ const modules = [
 const state = {
   active: "dashboard",
   user: null,
-  data: { customers: [], bookings: [], drivers: [], vehicles: [], assignments: [], trips: [] },
+  data: { customers: [], bookings: [], drivers: [], vehicles: [], assignments: [], trips: [], activity: [] },
   charts: {},
   modal: null,
   modalMode: null,
@@ -24,6 +24,13 @@ const PAYMENT_STATUSES = ["Pending", "Partial", "Paid"];
 const FOLLOW_UP_STATUSES = ["Pending", "Completed", "Missed"];
 const DRIVER_STATUSES = ["Available", "On Trip", "Leave", "Unavailable"];
 const BOOKING_STATUSES = ["Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"];
+const STATUS_TRANSITIONS = {
+  Pending: ["Confirmed"],
+  Confirmed: ["Driver Assigned"],
+  "Driver Assigned": ["Trip Started"],
+  "Trip Started": ["Completed"],
+  Completed: [],
+};
 const VEHICLE_STATUSES = ["Available", "Assigned", "Maintenance"];
 const STORAGE_KEYS = {
   payment: "mtt_booking_payment_status",
@@ -329,30 +336,35 @@ async function loadCoreData() {
   state.data.assignments = assignments.assignments;
 }
 
+async function loadActivity(limit = 12) {
+  try {
+    const res = await api(`/activity?limit=${limit}`);
+    state.data.activity = res.activity || [];
+  } catch {
+    state.data.activity = [];
+  }
+}
+
 async function renderDashboard() {
   const [data] = await Promise.all([api("/dashboard"), loadCoreData()]);
   const timing = tripTimingSummary(state.data.bookings);
   const alerts = coordinatorAlerts();
   content.innerHTML = `
     <div class="row g-3 mb-3">
-      ${metric("Total Bookings", data.cards.total_bookings, "fa-calendar-check")}
-      ${metric("Active Trips", data.cards.active_trips, "fa-route")}
-      ${metric("Completed Trips", data.cards.completed_trips, "fa-circle-check")}
-      ${metric("Available Drivers", data.cards.available_drivers, "fa-id-card")}
-      ${metric("Assigned Drivers", data.cards.assigned_drivers, "fa-user-clock")}
-      ${metric("Available Vehicles", data.cards.available_vehicles, "fa-car-side")}
+      ${metric("Total Bookings", data.cards.total_bookings, "fa-calendar-check", "", "col-6 col-md-4 col-xl-2")}
+      ${metric("Active Trips", data.cards.active_trips, "fa-route", "", "col-6 col-md-4 col-xl-2")}
+      ${metric("Completed Trips", data.cards.completed_trips, "fa-circle-check", "", "col-6 col-md-4 col-xl-2")}
+      ${metric("Available Drivers", data.cards.available_drivers, "fa-id-card", "", "col-6 col-md-4 col-xl-2")}
+      ${metric("Assigned Drivers", data.cards.assigned_drivers, "fa-user-clock", "", "col-6 col-md-4 col-xl-2")}
+      ${metric("Available Vehicles", data.cards.available_vehicles, "fa-car-side", "", "col-6 col-md-4 col-xl-2")}
     </div>
     <div class="row g-3 mb-3">
-      ${metric("Upcoming Trips", timing.upcoming, "fa-calendar-plus")}
-      ${metric("Ongoing Trips", timing.ongoing, "fa-route")}
-      ${metric("Completed Today", timing.completedToday, "fa-calendar-check")}
-      ${metric("Next Scheduled Pickup", timing.nextPickup, "fa-clock")}
-    </div>
-    <div class="row g-3 mb-3">
-      ${metric("Pending Payments", alerts.summary.pendingPayments, "fa-file-invoice-dollar")}
-      ${metric("Unassigned Bookings", alerts.summary.unassignedBookings, "fa-calendar-xmark")}
-      ${metric("Drivers on Leave", alerts.summary.driversOnLeave, "fa-user-clock")}
-      ${metric("Upcoming Trips", alerts.summary.upcomingTrips, "fa-clock")}
+      ${metric("Scheduled Pickups", timing.upcoming, "fa-calendar-plus", "Future open trips")}
+      ${metric("Ongoing Trips", timing.ongoing, "fa-route", "Assigned or started")}
+      ${metric("Completed Today", timing.completedToday, "fa-calendar-check", "Closed today")}
+      ${metric("Next Pickup", timing.nextPickup, "fa-clock", timing.nextPickupDetail)}
+      ${metric("Pending Payments", alerts.summary.pendingPayments, "fa-file-invoice-dollar", "Invoices needing follow-up")}
+      ${metric("Unassigned", alerts.summary.unassignedBookings, "fa-calendar-xmark", "Bookings awaiting assignment")}
     </div>
     <div class="row g-3 mb-3">
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
@@ -360,12 +372,11 @@ async function renderDashboard() {
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Trip Status Overview</h3></div><div class="chart-container"><canvas id="statusChart"></canvas></div></div></div>
     </div>
     <div class="row g-3 mb-3">
-      <div class="col-12"><div class="card-lite panel"><div class="panel-title"><h3>Active Trip Timing Cards</h3></div>${activeTripTimingCards(state.data.bookings)}</div></div>
+      <div class="col-12"><div class="card-lite panel"><div class="panel-title"><h3>Active Trip Briefs</h3></div>${activeTripTimingCards(state.data.bookings)}</div></div>
     </div>
     <div class="row g-3">
-      <div class="col-xl-4"><div class="card-lite panel"><div class="panel-title"><h3>Coordinator Alerts</h3></div>${alertList(alerts.items)}</div></div>
-      <div class="col-xl-4">${tablePanel("Recent Assignments", assignmentRows(data.recent_assignments))}</div>
-      <div class="col-xl-4">${tablePanel("Upcoming Trips", bookingRows(data.upcoming_trips, false))}</div>
+      <div class="col-xl-5"><div class="card-lite panel fill-panel"><div class="panel-title"><h3>Attention Queue</h3></div>${alertList(alerts.items)}</div></div>
+      <div class="col-xl-7">${tablePanel("Recent Assignments", assignmentRows(data.recent_assignments), "compact-table")}</div>
     </div>
   `;
   chart("dailyChart", "bar", data.daily_bookings, "#2563eb");
@@ -373,16 +384,16 @@ async function renderDashboard() {
   chart("statusChart", "doughnut", data.trip_status_overview, ["#f59e0b", "#2563eb", "#14b8a6", "#22c55e", "#64748b"]);
 }
 
-function metric(label, value, icon) {
+function metric(label, value, icon, hint = "Live operations", colClass = "col-6 col-md-4 col-lg-2") {
   return `
-  <div class="col-6 col-md-4 col-lg-2">
+  <div class="${colClass}">
       <div class="card-lite metric-card dashboard-metric-card">
           <div class="metric-content">
-              <span>${label}</span>
-              <strong>${value}</strong>
-              <small>
+              <span>${escapeHtml(label)}</span>
+              <strong title="${escapeHtml(String(hint || ""))}">${escapeHtml(String(value))}</strong>
+              <small title="${escapeHtml(String(hint || ""))}">
                   <i class="fa-solid fa-arrow-trend-up"></i>
-                  Live operations
+                  ${escapeHtml(hint || "Live operations")}
               </small>
           </div>
 
@@ -656,10 +667,11 @@ if (type === "bookings") {
 
     const tripDate = new Date(body.trip_date);
     const today = new Date();
+    const isCompletedBooking = body.status === "Completed";
 
     today.setHours(0, 0, 0, 0);
 
-    if (tripDate < today) {
+    if (tripDate < today && !isCompletedBooking) {
         toast(
             "Trip date cannot be in the past",
             "danger"
@@ -699,9 +711,8 @@ async function deleteEntity(type, id) {
 }
 
 async function renderAssignments() {
-  console.log("LATEST VERSION LOADED");
   await loadCoreData();
-  console.log("Assignments:", state.data.assignments);
+  await loadActivity();
   content.innerHTML = `
     <div class="row g-3">
       <div class="col-xl-4">
@@ -793,6 +804,10 @@ async function saveAssignment(event) {
 
 function openReassignModal(id) {
   const assignment = state.data.assignments.find((item) => item.id === id);
+  if (!canReassignAssignment(assignment)) {
+    toast("Only active, non-completed assignments can be reassigned", "danger");
+    return;
+  }
   state.modalMode = { type: "reassign", item: assignment };
   $("#modalTitle").textContent = `Reassign ${assignment.booking_code}`;
   setModalSaveVisible(true);
@@ -840,6 +855,7 @@ async function renderTrips() {
 }
 
 function tripRow(item) {
+  const options = tripStatusOptions(item.status);
   return `
   <tr>
     <td class="text-nowrap">
@@ -860,23 +876,27 @@ function tripRow(item) {
     </td>
     <td style="min-width: 160px;">
       <select class="form-select form-select-sm" data-trip-status="${item.id}">
-        ${["Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"].map((s) => `<option ${s === item.status ? "selected" : ""}>${s}</option>`).join("")}
+        ${options.map((s) => `<option ${s === item.status ? "selected" : ""}>${s}</option>`).join("")}
       </select>
     </td>
     <td><button class="btn btn-outline-secondary btn-sm" data-trip-detail="${item.id}" title="View Details"><i class="fa-regular fa-eye"></i></button></td>
   </tr>`;
 }
 
+function tripStatusOptions(status) {
+  return [status, ...(STATUS_TRANSITIONS[status] || [])];
+}
+
 async function updateTripStatus(event) {
   const trip = state.data.trips.find((item) => String(item.id) === String(event.target.dataset.tripStatus));
   try {
     await api(`/trips/${event.target.dataset.tripStatus}/status`, { method: "PUT", body: { status: event.target.value } });
-    recordTripHistory(Number(event.target.dataset.tripStatus), event.target.value, "Status updated");
     if (trip?.assignment) recordAssignmentAction("Status updated", trip.assignment, `${trip.booking_code} set to ${event.target.value}`);
     toast("Trip status updated");
     await renderTrips();
   } catch (error) {
     toast(error.message, "danger");
+    await renderTrips();
   }
 }
 
@@ -929,14 +949,14 @@ document.querySelectorAll("[data-export]").forEach((button) => {
         if (button.dataset.export === "excel") {
 
             window.open(
-                `${API_BASE}/reports/export/excel`,
+                `${API_BASE}/reports/export/excel?period=${encodeURIComponent(period)}`,
                 "_blank"
             );
 
         } else {
 
             window.open(
-                `${API_BASE}/reports/export/pdf`,
+                `${API_BASE}/reports/export/pdf?period=${encodeURIComponent(period)}`,
                 "_blank"
             );
 
@@ -950,9 +970,9 @@ chart("driverUtilChart", "bar", res.driver_utilization, "#2563eb");
 chart("vehicleUtilChart", "bar", res.vehicle_utilization, "#14b8a6");
 }
 
-function tablePanel(title, rows) {
-  return `<div class="card-lite panel"><div class="panel-title"><h3>${title}</h3></div>
-    <div class="table-responsive"><table class="table table-hover">${rows}</table></div></div>`;
+function tablePanel(title, rows, className = "") {
+  return `<div class="card-lite panel fill-panel"><div class="panel-title"><h3>${escapeHtml(title)}</h3></div>
+    <div class="table-responsive ${className}"><table class="table table-hover">${rows}</table></div></div>`;
 }
 
 function summaryRows(rows) {
@@ -973,14 +993,13 @@ function assignmentRows(rows, actions = false) {
   <tbody>${rows.map((item) => `<tr>
     <td>
     <strong class="booking-id">
-        ${item.booking_code}
+        ${escapeHtml(item.booking_code)}
     </strong>
-</td><td>${item.invoice_number || "-"}</td><td>${item.customer_name || "-"}</td><td>${item.driver_name}</td><td>${item.vehicle_name}</td>
+</td><td>${escapeHtml(item.invoice_number || "-")}</td><td>${escapeHtml(item.customer_name || "-")}</td><td>${escapeHtml(item.driver_name || "-")}</td><td>${escapeHtml(item.vehicle_name || "-")}</td>
     <td>${item.trip_date || "-"}</td><td>${badge(item.payment_status || "-")}</td><td>${badge(item.status || (item.is_active ? "Assigned" : "Reassigned"))}</td>
     ${actions ? `
 <td><div class="actions">
-<button class="btn btn-outline-primary btn-sm" data-reassign="${item.id}" title="Reassign"><i class="fa-solid fa-rotate me-1"></i>Reassign</button>
-<button class="btn btn-outline-danger btn-sm ms-2" data-delete-assignment="${item.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
+${assignmentActionButtons(item)}
 </div></td>
 ` : ""}
   </tr>`).join("") || emptyRow(actions ? 9 : 8)}</tbody>`;
@@ -990,8 +1009,8 @@ function assignmentTimeline(rows, actions = false) {
   return `<div class="timeline-list">${rows.map((item) => `<div class="timeline-item">
     <div class="timeline-dot"></div>
     <div class="timeline-card">
-      <div class="timeline-head"><strong class="booking-id">${item.booking_code}</strong>${badge(item.status || (item.is_active ? "Assigned" : "Reassigned"))}</div>
-      <div class="timeline-grid"><span><i class="fa-regular fa-user"></i>${item.customer_name || "-"}</span><span><i class="fa-solid fa-id-card"></i>${item.driver_name}</span><span><i class="fa-solid fa-car-side"></i>${item.vehicle_name}</span><span><i class="fa-regular fa-calendar"></i>${item.trip_date || "-"}</span></div>
+      <div class="timeline-head"><strong class="booking-id">${escapeHtml(item.booking_code)}</strong>${badge(item.status || (item.is_active ? "Assigned" : "Reassigned"))}</div>
+      <div class="timeline-grid"><span><i class="fa-regular fa-user"></i>${escapeHtml(item.customer_name || "-")}</span><span><i class="fa-solid fa-id-card"></i>${escapeHtml(item.driver_name || "-")}</span><span><i class="fa-solid fa-car-side"></i>${escapeHtml(item.vehicle_name || "-")}</span><span><i class="fa-regular fa-calendar"></i>${escapeHtml(item.trip_date || "-")}</span></div>
       ${actions ? `
 <div class="mt-3 d-flex gap-2">
 
@@ -1000,17 +1019,7 @@ function assignmentTimeline(rows, actions = false) {
     <i class="fa-regular fa-eye"></i>
 </button>
 
-<button class="btn btn-outline-primary btn-sm"
-        data-reassign="${item.id}">
-    <i class="fa-solid fa-rotate me-1"></i>Reassign
-</button>
-
-${true ? `
-<button class="btn btn-outline-danger btn-sm"
-        data-delete-assignment="${item.id}">
-    <i class="fa-solid fa-trash"></i> Delete
-</button>
-` : ""}
+${assignmentActionButtons(item)}
 
 </div>
 ` : ""}
@@ -1018,15 +1027,33 @@ ${true ? `
   </div>`).join("") || `<div class="text-center text-secondary py-4">No records found</div>`}</div>`;
 }
 
+function canReassignAssignment(item) {
+  return Boolean(item?.is_active && item.status !== "Completed");
+}
+
+function canDeleteAssignment(item) {
+  return item?.status === "Completed";
+}
+
+function assignmentActionButtons(item) {
+  const reassign = canReassignAssignment(item)
+    ? `<button class="btn btn-outline-primary btn-sm" data-reassign="${item.id}" title="Reassign active assignment"><i class="fa-solid fa-rotate me-1"></i>Reassign</button>`
+    : `<button class="btn btn-outline-secondary btn-sm" type="button" disabled title="Only active, non-completed assignments can be reassigned"><i class="fa-solid fa-lock me-1"></i>Reassign</button>`;
+  const deleteButton = canDeleteAssignment(item)
+    ? `<button class="btn btn-outline-danger btn-sm" data-delete-assignment="${item.id}" title="Delete completed assignment"><i class="fa-solid fa-trash"></i></button>`
+    : `<button class="btn btn-outline-secondary btn-sm" type="button" disabled title="Only completed assignments can be deleted"><i class="fa-solid fa-lock"></i></button>`;
+  return `${reassign}${deleteButton}`;
+}
+
 function bookingRows(rows) {
   return `<thead><tr><th>Booking</th><th>Customer</th><th>Route</th><th>Date</th><th>Status</th></tr></thead>
-  <tbody>${rows.map((item) => `<tr><td><strong class="booking-id">${item.booking_code}</strong></td><td>${item.customer_name}</td><td>
+  <tbody>${rows.map((item) => `<tr><td><strong class="booking-id">${escapeHtml(item.booking_code)}</strong></td><td>${escapeHtml(item.customer_name || "-")}</td><td>
     <div class="route-cell">
-        <span>${item.pickup_location}</span>
+        <span>${escapeHtml(item.pickup_location || "-")}</span>
         <i class="fa-solid fa-arrow-right mx-2"></i>
-        <span>${item.drop_location}</span>
+        <span>${escapeHtml(item.drop_location || "-")}</span>
     </div>
-</td><td>${item.trip_date} ${item.trip_time}</td><td>
+</td><td>${escapeHtml(item.trip_date || "-")} ${escapeHtml(item.trip_time || "")}</td><td>
     ${statusProgress(item.status)}
     <div class="mt-2">
         ${badge(item.status)}
@@ -1133,7 +1160,8 @@ function tripTimingSummary(bookings) {
     upcoming: upcomingTrips.length,
     ongoing: bookings.filter((booking) => ["Driver Assigned", "Trip Started"].includes(booking.status)).length,
     completedToday: bookings.filter((booking) => booking.status === "Completed" && sameDay(tripDateTime(booking), today)).length,
-    nextPickup: next ? `${next.trip_time} ${next.booking_code}` : "-",
+    nextPickup: next ? next.trip_time : "-",
+    nextPickupDetail: next ? `${next.booking_code} - ${next.customer_name || "Customer"} on ${next.trip_date}` : "No upcoming pickup",
   };
 }
 
@@ -1229,6 +1257,7 @@ function getCoordinatorWindowHours() {
 
 async function renderCoordinator() {
   await loadCoreData();
+  await loadActivity();
   const hours = getCoordinatorWindowHours();
   let data = null;
   try {
@@ -1254,10 +1283,9 @@ async function renderCoordinator() {
       }),
       pending_payments: state.data.bookings.filter((booking) => bookingPaymentStatus(booking) !== "Paid"),
       overdue_follow_ups: state.data.bookings.filter((booking) => booking.follow_up_date && new Date(`${booking.follow_up_date}T00:00`) < new Date(new Date().toDateString()) && (booking.follow_up_status || "Pending") === "Pending"),
-      recent_activity: recentActionHistory(12),
+      recent_activity: state.data.activity,
     };
   }
-  const alerts = coordinatorAlerts().items;
   content.innerHTML = `
     <div class="toolbar">
       <div class="d-flex gap-2 flex-wrap align-items-center">
@@ -1266,29 +1294,26 @@ async function renderCoordinator() {
         </select>
       </div>
     </div>
-    <div class="row g-3 mb-3">
-      ${metric("Unassigned Bookings", data.counters.unassigned_bookings, "fa-calendar-xmark")}
-      ${metric("Drivers on Leave", data.counters.drivers_on_leave, "fa-user-clock")}
-      ${metric("Vehicles Unavailable", data.counters.vehicles_unavailable, "fa-screwdriver-wrench")}
-      ${metric("Upcoming Trips", data.counters.upcoming_trips, "fa-clock")}
-      ${metric("Pending Payments", data.counters.pending_payments, "fa-file-invoice-dollar")}
-      ${metric("Overdue Follow-Ups", data.counters.overdue_follow_ups, "fa-phone-volume")}
+    <div class="row g-3 mb-3 coordinator-metrics">
+      ${metric("Unassigned", data.counters.unassigned_bookings, "fa-calendar-xmark", "Needs driver and vehicle")}
+      ${metric("Pending Pay", data.counters.pending_payments, "fa-file-invoice-dollar", "Payment follow-up")}
+      ${metric("Upcoming", data.counters.upcoming_trips, "fa-clock", `${hours} hour dispatch window`)}
+      ${metric("Driver Leave", data.counters.drivers_on_leave, "fa-user-clock", "Unavailable drivers")}
+      ${metric("Maintenance", data.counters.vehicles_unavailable, "fa-screwdriver-wrench", "Vehicles unavailable")}
+      ${metric("Follow-Ups", data.counters.overdue_follow_ups, "fa-phone-volume", "Overdue customer calls")}
     </div>
-    <div class="row g-3 mb-3">
-      <div class="col-xl-5"><div class="card-lite panel"><div class="panel-title"><h3>Operational Alerts</h3></div>${alertList(alerts)}</div></div>
-      <div class="col-xl-7">${tablePanel("Upcoming Trips", coordinatorBookingRows(data.upcoming_trips, true))}</div>
+    <div class="row g-3 mb-3 coordinator-grid">
+      <div class="col-xl-4">${tablePanel("Unassigned Bookings", coordinatorBookingRows(data.unassigned_bookings, "assignment"), "compact-table")}</div>
+      <div class="col-xl-4">${tablePanel("Pending Payments", coordinatorBookingRows(data.pending_payments, "payment"), "compact-table")}</div>
+      <div class="col-xl-4">${tablePanel("Upcoming Trips", coordinatorBookingRows(data.upcoming_trips, "route"), "compact-table")}</div>
     </div>
-    <div class="row g-3 mb-3">
-      <div class="col-xl-6">${tablePanel("Unassigned Bookings", coordinatorBookingRows(data.unassigned_bookings))}</div>
-      <div class="col-xl-6">${tablePanel("Pending Payments", coordinatorBookingRows(data.pending_payments))}</div>
+    <div class="row g-3 mb-3 coordinator-grid">
+      <div class="col-xl-6">${tablePanel("Driver Leave", driverRows(data.drivers_on_leave), "compact-table")}</div>
+      <div class="col-xl-6">${tablePanel("Vehicle Maintenance", vehicleRows(data.vehicles_unavailable), "compact-table")}</div>
     </div>
-    <div class="row g-3 mb-3">
-      <div class="col-xl-6">${tablePanel("Drivers on Leave", driverRows(data.drivers_on_leave))}</div>
-      <div class="col-xl-6">${tablePanel("Vehicles in Maintenance", vehicleRows(data.vehicles_unavailable))}</div>
-    </div>
-    <div class="row g-3">
-      <div class="col-xl-6">${tablePanel("Overdue Follow-Ups", followUpRows(data.overdue_follow_ups))}</div>
-      <div class="col-xl-6"><div class="card-lite panel"><div class="panel-title"><h3>Recent Activity</h3></div>${activityList(data.recent_activity)}</div></div>
+    <div class="row g-3 coordinator-grid">
+      <div class="col-xl-6">${tablePanel("Overdue Follow-Ups", followUpRows(data.overdue_follow_ups), "compact-table")}</div>
+      <div class="col-xl-6"><div class="card-lite panel fill-panel"><div class="panel-title"><h3>Recent Activity</h3></div>${activityList(data.recent_activity)}</div></div>
     </div>
   `;
   $("#windowSelect").addEventListener("change", (event) => {
@@ -1298,40 +1323,15 @@ async function renderCoordinator() {
 }
 
 function recordAssignmentAction(action, assignment, detail = "") {
-  if (!assignment) return;
-  const history = storageObject(STORAGE_KEYS.actionHistory);
-  const key = String(assignment.booking_id || assignment.id);
-  history[key] = history[key] || [];
-  history[key].unshift({
-    action,
-    detail,
-    booking_code: assignment.booking_code,
-    driver_name: assignment.driver_name,
-    vehicle_name: assignment.vehicle_name,
-    created_at: new Date().toISOString(),
-  });
-  saveStorageObject(STORAGE_KEYS.actionHistory, history);
+  return { action, assignment, detail };
 }
 
 function recordBookingAction(action, booking, detail = "") {
-  if (!booking) return;
-  const history = storageObject(STORAGE_KEYS.actionHistory);
-  const key = String(booking.id);
-  history[key] = history[key] || [];
-  history[key].unshift({
-    action,
-    detail,
-    booking_code: booking.booking_code,
-    invoice_number: booking.invoice_number,
-    driver_name: booking.assignment?.driver_name,
-    vehicle_name: booking.assignment?.vehicle_name,
-    created_at: new Date().toISOString(),
-  });
-  saveStorageObject(STORAGE_KEYS.actionHistory, history);
+  return { action, booking, detail };
 }
 
 function recentActionHistory(limit = 12) {
-  return Object.values(storageObject(STORAGE_KEYS.actionHistory)).flat().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
+  return (state.data.activity || []).slice(0, limit);
 }
 
 function actionHistoryList(limit = 12) {
@@ -1352,17 +1352,18 @@ function activityList(history) {
     </div>`).join("")}</div>`;
 }
 
-function coordinatorBookingRows(rows, includeRouteNotes = false) {
-  return `<thead><tr><th>Booking</th><th>Invoice</th><th>Customer</th><th>Date</th><th>Payment</th><th>Status</th>${includeRouteNotes ? "<th>Route Notes</th>" : ""}</tr></thead>
+function coordinatorBookingRows(rows, mode = "default") {
+  const extraHeader = mode === "route" ? "<th>Route Notes</th>" : mode === "payment" ? "<th>Follow-Up</th>" : "";
+  return `<thead><tr><th>Booking</th><th>Customer</th><th>Date</th><th>Payment</th><th>Status</th>${extraHeader}</tr></thead>
   <tbody>${rows.map((item) => `<tr>
     <td><strong class="booking-id">${escapeHtml(item.booking_code)}</strong></td>
-    <td><strong class="booking-id">${escapeHtml(item.invoice_number || "-")}</strong></td>
     <td>${escapeHtml(item.customer_name || "-")}</td>
     <td>${escapeHtml(item.trip_date || "-")} ${escapeHtml(item.trip_time || "")}</td>
     <td>${badge(bookingPaymentStatus(item))}</td>
     <td>${badge(item.status)}</td>
-    ${includeRouteNotes ? `<td>${escapeHtml(item.assignment?.route_notes || "-")}</td>` : ""}
-  </tr>`).join("") || emptyRow(includeRouteNotes ? 7 : 6)}</tbody>`;
+    ${mode === "route" ? `<td>${escapeHtml(item.assignment?.route_notes || "-")}</td>` : ""}
+    ${mode === "payment" ? `<td>${escapeHtml(item.invoice_number || "-")} ${escapeHtml(item.follow_up_date || "")}</td>` : ""}
+  </tr>`).join("") || emptyRow(extraHeader ? 6 : 5)}</tbody>`;
 }
 
 function driverRows(rows) {
@@ -1381,26 +1382,22 @@ function followUpRows(rows) {
 }
 
 function recordTripHistory(bookingId, status, remarks = "") {
-  const history = storageObject(STORAGE_KEYS.tripHistory);
-  history[bookingId] = history[bookingId] || [];
-  history[bookingId].unshift({ status, remarks, created_at: new Date().toISOString() });
-  saveStorageObject(STORAGE_KEYS.tripHistory, history);
+  return { bookingId, status, remarks };
 }
 
-function tripStatusHistory(booking) {
-  const saved = storageObject(STORAGE_KEYS.tripHistory)[booking.id] || [];
-  const assignmentHistory = (storageObject(STORAGE_KEYS.actionHistory)[booking.id] || []).map((item) => ({
-    status: item.action,
-    remarks: item.detail,
-    created_at: item.created_at,
-  }));
-  const base = [{ status: booking.status, remarks: "Current booking status", created_at: new Date().toISOString() }];
-  return [...saved, ...assignmentHistory, ...base].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+async function tripStatusHistory(booking) {
+  try {
+    const res = await api(`/trips/${booking.id}/history`);
+    const history = res.history || [];
+    if (history.length) return history;
+  } catch {}
+  return [{ status: booking.status, remarks: "Current booking status", created_at: booking.updated_at || new Date().toISOString() }];
 }
 
-function openTripDetailModal(id, sourceRows = null) {
+async function openTripDetailModal(id, sourceRows = null) {
   const booking = (sourceRows || state.data.bookings || state.data.trips).find((item) => Number(item.id) === Number(id));
   if (!booking) return;
+  const history = await tripStatusHistory(booking);
   const assignment = booking.assignment || state.data.assignments.find((item) => item.booking_id === booking.id && item.is_active);
   const customer = state.data.customers.find((item) => item.id === booking.customer_id);
   const driver = assignment ? state.data.drivers.find((item) => item.id === assignment.driver_id) : null;
@@ -1418,7 +1415,7 @@ function openTripDetailModal(id, sourceRows = null) {
     <div class="col-12">
       <div class="detail-card">
         <h4>Status history</h4>
-        <div class="history-stack">${tripStatusHistory(booking).map((item) => `
+        <div class="history-stack">${history.map((item) => `
           <div class="history-row"><div>${badge(item.status)}<span>${escapeHtml(item.remarks || "")}</span></div><small>${formatDateTime(item.created_at)}</small></div>
         `).join("")}</div>
       </div>

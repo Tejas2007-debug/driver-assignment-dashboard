@@ -620,7 +620,7 @@ a { text-decoration: none; }
 
 .table th,
 .table td {
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-color: #edf2f7;
   white-space: normal;
   word-break: normal;
@@ -650,6 +650,61 @@ a { text-decoration: none; }
 .table tbody tr:hover {
   background: #eff6ff;
 }
+
+.customer-table,
+.dashboard-table .table {
+  min-width: 760px;
+  table-layout: fixed;
+}
+
+.booking-table,
+.trip-table {
+  min-width: 1120px;
+  table-layout: fixed;
+}
+
+.customer-table th:nth-child(1),
+.customer-table td:nth-child(1) { width: 24%; }
+.customer-table th:nth-child(2),
+.customer-table td:nth-child(2) { width: 15%; }
+.customer-table th:nth-child(5),
+.customer-table td:nth-child(5) { width: 116px; }
+
+.booking-table th:nth-child(1),
+.booking-table td:nth-child(1),
+.booking-table th:nth-child(2),
+.booking-table td:nth-child(2) { width: 10%; }
+.booking-table th:nth-child(3),
+.booking-table td:nth-child(3) { width: 16%; }
+.booking-table th:nth-child(4),
+.booking-table td:nth-child(4) { width: 20%; }
+.booking-table th:nth-child(5),
+.booking-table td:nth-child(5) { width: 12%; }
+.booking-table th:nth-child(7),
+.booking-table td:nth-child(7),
+.booking-table th:nth-child(8),
+.booking-table td:nth-child(8) { width: 10%; }
+.booking-table th:nth-child(9),
+.booking-table td:nth-child(9) { width: 116px; }
+
+.trip-table th:nth-child(1),
+.trip-table td:nth-child(1) { width: 10%; }
+.trip-table th:nth-child(2),
+.trip-table td:nth-child(2) { width: 12%; }
+.trip-table th:nth-child(3),
+.trip-table td:nth-child(3),
+.trip-table th:nth-child(4),
+.trip-table td:nth-child(4) { width: 18%; }
+.trip-table th:nth-child(5),
+.trip-table td:nth-child(5),
+.trip-table th:nth-child(6),
+.trip-table td:nth-child(6),
+.trip-table th:nth-child(8),
+.trip-table td:nth-child(8) { width: 10%; }
+.trip-table th:nth-child(7),
+.trip-table td:nth-child(7) { width: 12%; }
+.trip-table th:nth-child(9),
+.trip-table td:nth-child(9) { width: 72px; }
 
 .profile-cell {
   display: flex;
@@ -987,12 +1042,6 @@ a { text-decoration: none; }
 
 .sidebar-overlay.show { display: block; }
 
-.table th,
-.table td {
-  padding: 10px 12px;
-  vertical-align: middle;
-}
-
 .compact-table .table th,
 .compact-table .table td {
   padding: 9px 10px;
@@ -1003,6 +1052,7 @@ a { text-decoration: none; }
 .route-cell,
 .assignment-cell,
 .status-cell,
+.payment-display,
 .row.g-3 > div {
   min-width: 0;
 }
@@ -1088,7 +1138,8 @@ a { text-decoration: none; }
 
 .trip-status-select,
 .payment-status-select {
-  min-width: 130px;
+  min-width: 0;
+  width: 100%;
 }
 
 .trip-status-select:focus,
@@ -1243,6 +1294,14 @@ a { text-decoration: none; }
   .responsive-card-table td {
     display: block;
     width: 100%;
+  }
+
+  .customer-table,
+  .dashboard-table .table,
+  .booking-table,
+  .trip-table {
+    min-width: 0;
+    table-layout: auto;
   }
 
   .responsive-card-table thead { display: none; }

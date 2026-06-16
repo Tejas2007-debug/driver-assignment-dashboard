@@ -353,9 +353,9 @@ async function renderDashboard() {
       ${metric("Total Bookings", data.cards.total_bookings, "fa-calendar-check", "", "col-6 col-md-4 col-xl-2")}
       ${metric("Active Trips", data.cards.active_trips, "fa-route", "", "col-6 col-md-4 col-xl-2")}
       ${metric("Completed Trips", data.cards.completed_trips, "fa-circle-check", "", "col-6 col-md-4 col-xl-2")}
-      ${metric("Available Drivers", data.cards.available_drivers, "fa-id-card", "", "col-6 col-md-4 col-xl-2")}
-      ${metric("Assigned Drivers", data.cards.assigned_drivers, "fa-user-clock", "", "col-6 col-md-4 col-xl-2")}
-      ${metric("Available Vehicles", data.cards.available_vehicles, "fa-car-side", "", "col-6 col-md-4 col-xl-2")}
+      ${metric("Upcoming Trips", timing.upcoming, "fa-clock", "Scheduled pickups", "col-6 col-md-4 col-xl-2")}
+      ${metric("Recent Assignments", (data.recent_assignments || []).length, "fa-clipboard-check", "Latest completed links", "col-6 col-md-4 col-xl-2")}
+      ${metric("Next Pickup", timing.nextPickup, "fa-location-dot", timing.nextPickupDetail, "col-6 col-md-4 col-xl-2")}
     </div>
     <div class="row g-3 mb-3">
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
@@ -372,7 +372,7 @@ async function renderDashboard() {
       <div class="col-lg-8">${tablePanel("Upcoming Trips", upcomingTripRows(data.upcoming_trips), "compact-table responsive-card-table")}</div>
     </div>
     <div class="row g-3">
-      <div class="col-12">${tablePanel("Recent Assignments", assignmentRows(data.recent_assignments), "compact-table responsive-card-table")}</div>
+      <div class="col-12">${tablePanel("Recent Assignments", dashboardAssignmentRows(data.recent_assignments), "compact-table responsive-card-table dashboard-table")}</div>
     </div>
   `;
   chart("dailyChart", "bar", data.daily_bookings, "#2563eb");
@@ -437,7 +437,8 @@ const configs = {
       ["address", "Address", "textarea"],
     ],
     headers: ["Name", "Phone", "Email", "Address", "Actions"],
-    row: (x) => [profileCell(x.name, x.email, "customer"), x.phone, x.email || "-", x.address || "-"],
+    tableClass: "customer-table",
+    row: (x) => [profileCell(x.name, x.email, "customer"), escapeHtml(x.phone || "-"), escapeHtml(x.email || "-"), escapeHtml(x.address || "-")],
   },
   drivers: {
     endpoint: "/drivers",
@@ -485,13 +486,14 @@ const configs = {
       ["follow_up_note", "Follow-Up Note", "textarea", { required: false }],
     ],
     headers: ["Booking", "Invoice", "Customer", "Route", "Schedule", "Vehicle Type", "Status", "Payment", "Actions"],
+    tableClass: "booking-table",
     row: (x) => [
       `<strong class="booking-id">${escapeHtml(x.booking_code)}</strong>`,
       `<strong class="booking-id">${escapeHtml(x.invoice_number || "-")}</strong>`,
       profileCell(x.customer_name, x.vehicle_type, "customer"),
       routeCell(x.pickup_location, x.drop_location),
       scheduleCell(x.trip_date, x.trip_time),
-      x.vehicle_type,
+      escapeHtml(x.vehicle_type || "-"),
       badge(x.status),
       badge(bookingPaymentStatus(x)),
     ],
@@ -536,7 +538,8 @@ function statusFilter(type = "bookings") {
 }
 
 function crudTable(config, rows) {
-  return `<table class="table table-hover">
+  const tableClass = config.tableClass ? ` ${config.tableClass}` : "";
+  return `<table class="table table-hover${tableClass}">
     <thead><tr>${config.headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
     <tbody>${rows.map((item) => crudRow(config, item)).join("") || emptyRow(config.headers.length)}</tbody>
   </table>`;
@@ -852,7 +855,7 @@ async function renderTrips() {
   state.data.trips = res.trips;
   content.innerHTML = `<div class="card-lite panel">
     <div class="table-responsive responsive-card-table">
-      <table class="table table-hover align-middle">
+      <table class="table table-hover align-middle trip-table">
         <thead><tr><th>Booking</th><th>Customer</th><th>Assignment</th><th>Route</th><th>Schedule</th><th>Status</th><th>Update</th><th>Payment</th><th>Action</th></tr></thead>
         <tbody>${state.data.trips.map(tripRow).join("") || emptyRow(9)}</tbody>
       </table>
@@ -889,7 +892,7 @@ function tripRow(item) {
         ${options.map((s) => `<option ${s === item.status ? "selected" : ""}>${s}</option>`).join("")}
       </select>
     </td>
-    <td>${paymentControl(item)}</td>
+    <td class="status-cell">${paymentControl(item)}</td>
     <td><div class="actions"><button class="btn btn-outline-secondary btn-sm" data-trip-detail="${item.id}" title="View Details"><i class="fa-regular fa-eye"></i></button></div></td>
   </tr>`;
 }
@@ -912,7 +915,7 @@ async function updateTripStatus(event) {
 }
 
 function paymentControl(item) {
-  if (item.status !== "Completed") return badge(bookingPaymentStatus(item));
+  if (item.status !== "Completed") return `<div class="payment-display">${badge(bookingPaymentStatus(item))}</div>`;
   return `<select class="form-select form-select-sm payment-status-select" data-payment-status="${item.id}" title="Payment status">
     ${PAYMENT_STATUSES.map((status) => `<option value="${status}" ${status === bookingPaymentStatus(item) ? "selected" : ""}>${status}</option>`).join("")}
   </select>`;
@@ -1040,6 +1043,17 @@ ${assignmentActionButtons(item)}
   </tr>`).join("") || emptyRow(actions ? 9 : 8)}</tbody>`;
 }
 
+function dashboardAssignmentRows(rows) {
+  return `<thead><tr><th>Booking</th><th>Customer</th><th>Date</th><th>Payment</th><th>Status</th></tr></thead>
+  <tbody>${(rows || []).map((item) => `<tr>
+    <td><strong class="booking-id">${escapeHtml(item.booking_code)}</strong></td>
+    <td>${escapeHtml(item.customer_name || "-")}</td>
+    <td>${scheduleCell(item.trip_date, item.trip_time)}</td>
+    <td>${badge(item.payment_status || bookingPaymentStatus(item))}</td>
+    <td>${badge(item.status || (item.is_active ? "Assigned" : "Reassigned"))}</td>
+  </tr>`).join("") || emptyRow(5)}</tbody>`;
+}
+
 function routeCell(pickup, drop) {
   return `<div class="route-cell">
     <span>${escapeHtml(pickup || "-")}</span>
@@ -1112,7 +1126,7 @@ function saveStorageObject(key, value) {
 }
 
 function bookingPaymentStatus(booking) {
-  return booking?.payment_status || storageObject(STORAGE_KEYS.payment)[booking?.id] || "Pending";
+  return storageObject(STORAGE_KEYS.payment)[booking?.id] || booking?.payment_status || "Pending";
 }
 
 function saveBookingPaymentStatus(id, status) {
@@ -1364,6 +1378,8 @@ function normalizeCoordinatorData(data) {
   const upcoming = byId(data.upcoming_trips);
   const overdueFollowUps = byId(data.overdue_follow_ups);
   const recentActivity = byId(data.recent_activity);
+  const driversOnLeave = byId(data.drivers_on_leave);
+  const vehiclesUnavailable = byId(data.vehicles_unavailable);
   return {
     ...data,
     counters: {
@@ -1371,11 +1387,15 @@ function normalizeCoordinatorData(data) {
       unassigned_bookings: unassigned.length,
       pending_payments: pendingPayments.length,
       upcoming_trips: upcoming.length,
+      drivers_on_leave: driversOnLeave.length,
+      vehicles_unavailable: vehiclesUnavailable.length,
       overdue_follow_ups: overdueFollowUps.length,
     },
     unassigned_bookings: unassigned,
     pending_payments: pendingPayments,
     upcoming_trips: upcoming,
+    drivers_on_leave: driversOnLeave,
+    vehicles_unavailable: vehiclesUnavailable,
     overdue_follow_ups: overdueFollowUps,
     recent_activity: recentActivity,
   };
@@ -1413,9 +1433,9 @@ function coordinatorBookingRows(rows, mode = "default") {
   <tbody>${rows.map((item) => `<tr>
     <td><strong class="booking-id">${escapeHtml(item.booking_code)}</strong></td>
     <td>${escapeHtml(item.customer_name || "-")}</td>
-    <td>${escapeHtml(item.trip_date || "-")} ${escapeHtml(item.trip_time || "")}</td>
-    <td>${badge(bookingPaymentStatus(item))}</td>
-    <td>${badge(item.status)}</td>
+    <td>${scheduleCell(item.trip_date, item.trip_time)}</td>
+    <td class="status-cell">${badge(bookingPaymentStatus(item))}</td>
+    <td class="status-cell">${badge(item.status)}</td>
     ${mode === "route" ? `<td>${escapeHtml(item.assignment?.route_notes || "-")}</td>` : ""}
     ${mode === "payment" ? `<td>${escapeHtml(item.invoice_number || "-")} ${escapeHtml(item.follow_up_date || "")}</td>` : ""}
   </tr>`).join("") || emptyRow(extraHeader ? 6 : 5)}</tbody>`;

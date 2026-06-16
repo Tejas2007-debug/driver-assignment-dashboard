@@ -6,9 +6,30 @@ from flask import jsonify, session
 from .models import Assignment
 
 
-BOOKING_STATUSES = {"Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"}
+BOOKING_STATUSES = {
+    "Pending",
+    "Confirmed",
+    "Driver Assigned",
+    "Vehicle Assigned",
+    "Trip Started",
+    "In Progress",
+    "Completed",
+    "Cancelled",
+}
+PAYMENT_STATUSES = {"Pending", "Partial", "Paid", "Refunded"}
 DRIVER_STATUSES = {"Available", "Assigned", "Unavailable"}
 VEHICLE_STATUSES = {"Available", "Assigned", "Maintenance"}
+
+STATUS_TRANSITIONS = {
+    "Pending": {"Confirmed", "Cancelled"},
+    "Confirmed": {"Driver Assigned", "Cancelled"},
+    "Driver Assigned": {"Vehicle Assigned", "Cancelled"},
+    "Vehicle Assigned": {"Trip Started", "Cancelled"},
+    "Trip Started": {"In Progress", "Cancelled"},
+    "In Progress": {"Completed", "Cancelled"},
+    "Completed": set(),
+    "Cancelled": set(),
+}
 
 
 def login_required(view):
@@ -45,10 +66,18 @@ def has_schedule_conflict(booking, driver_id=None, vehicle_id=None, exclude_assi
         query = query.filter(Assignment.vehicle_id == vehicle_id)
 
     for assignment in query.all():
+        if assignment.booking.status in {"Completed", "Cancelled"}:
+            continue
         other_start, other_end = trip_window(assignment.booking)
         if start < other_end and end > other_start:
             return assignment
     return None
+
+
+def is_valid_status_transition(current_status, next_status):
+    if current_status == next_status:
+        return True
+    return next_status in STATUS_TRANSITIONS.get(current_status, set())
 
 
 def require_fields(payload, fields):

@@ -19,6 +19,17 @@ const state = {
   modalMode: null,
 };
 
+const PAYMENT_STATUSES = ["Pending", "Partial", "Paid"];
+const DRIVER_STATUSES = ["Available", "On Trip", "Leave", "Unavailable"];
+const BOOKING_STATUSES = ["Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"];
+const VEHICLE_STATUSES = ["Available", "Assigned", "Maintenance"];
+const STORAGE_KEYS = {
+  payment: "mtt_booking_payment_status",
+  driverStatus: "mtt_driver_status_overrides",
+  actionHistory: "mtt_assignment_action_history",
+  tripHistory: "mtt_trip_status_history",
+};
+
 const $ = (selector) => document.querySelector(selector);
 const content = $("#content");
 const loader = $("#loader");
@@ -316,7 +327,9 @@ async function loadCoreData() {
 }
 
 async function renderDashboard() {
-  const data = await api("/dashboard");
+  const [data] = await Promise.all([api("/dashboard"), loadCoreData()]);
+  const timing = tripTimingSummary(state.data.bookings);
+  const alerts = coordinatorAlerts();
   content.innerHTML = `
     <div class="row g-3 mb-3">
       ${metric("Total Bookings", data.cards.total_bookings, "fa-calendar-check")}
@@ -327,13 +340,20 @@ async function renderDashboard() {
       ${metric("Available Vehicles", data.cards.available_vehicles, "fa-car-side")}
     </div>
     <div class="row g-3 mb-3">
+      ${metric("Upcoming Trips", timing.upcoming, "fa-calendar-plus")}
+      ${metric("Ongoing Trips", timing.ongoing, "fa-route")}
+      ${metric("Completed Today", timing.completedToday, "fa-calendar-check")}
+      ${metric("Next Scheduled Pickup", timing.nextPickup, "fa-clock")}
+    </div>
+    <div class="row g-3 mb-3">
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Weekly Bookings</h3></div><div class="chart-container"><canvas id="weeklyChart"></canvas></div></div></div>
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Trip Status Overview</h3></div><div class="chart-container"><canvas id="statusChart"></canvas></div></div></div>
     </div>
     <div class="row g-3">
-      <div class="col-xl-6">${tablePanel("Recent Assignments", assignmentRows(data.recent_assignments))}</div>
-      <div class="col-xl-6">${tablePanel("Upcoming Trips", bookingRows(data.upcoming_trips, false))}</div>
+      <div class="col-xl-4"><div class="card-lite panel"><div class="panel-title"><h3>Coordinator Alerts</h3></div>${alertList(alerts)}</div></div>
+      <div class="col-xl-4">${tablePanel("Recent Assignments", assignmentRows(data.recent_assignments))}</div>
+      <div class="col-xl-4">${tablePanel("Upcoming Trips", bookingRows(data.upcoming_trips, false))}</div>
     </div>
   `;
   chart("dailyChart", "bar", data.daily_bookings, "#2563eb");
@@ -408,10 +428,10 @@ const configs = {
       ["phone", "Phone Number", "tel"],
       ["license_number", "License Number", "text"],
       ["experience", "Experience", "number"],
-      ["availability_status", "Availability Status", "select", ["Available", "Assigned", "Unavailable"]],
+      ["availability_status", "Availability Status", "select", DRIVER_STATUSES],
     ],
-    headers: ["Name", "Phone", "License", "Experience", "Availability", "Actions"],
-    row: (x) => [profileCell(x.name, x.phone, "driver"), x.phone, x.license_number, expBadge(x.experience), badge(x.availability_status)],
+    headers: ["Name", "Phone", "License", "Experience", "Status", "Actions"],
+    row: (x) => [profileCell(x.name, x.phone, "driver"), x.phone, x.license_number, expBadge(x.experience), badge(driverStatus(x))],
   },
   vehicles: {
     endpoint: "/vehicles",
@@ -439,14 +459,16 @@ const configs = {
       ["trip_time", "Trip Time", "time"],
       ["vehicle_type", "Vehicle Type", "text"],
       ["status", "Status", "select", ["Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"]],
+      ["payment_status", "Payment Status", "select", PAYMENT_STATUSES],
     ],
-    headers: ["Booking ID", "Customer", "Pickup", "Drop", "Date", "Time", "Vehicle Type", "Status", "Actions"],
-    row: (x) => [`<strong class="booking-id">${x.booking_code}</strong>`, profileCell(x.customer_name, x.vehicle_type, "customer"), x.pickup_location, x.drop_location, x.trip_date, x.trip_time, x.vehicle_type, badge(x.status)],
+    headers: ["Booking ID", "Customer", "Pickup", "Drop", "Date", "Time", "Vehicle Type", "Status", "Payment", "Actions"],
+    row: (x) => [`<strong class="booking-id">${x.booking_code}</strong>`, profileCell(x.customer_name, x.vehicle_type, "customer"), x.pickup_location, x.drop_location, x.trip_date, x.trip_time, x.vehicle_type, badge(x.status), badge(bookingPaymentStatus(x))],
+    details: true,
   },
 };
 
 async function renderCrud(type) {
-  if (type === "bookings") await loadCoreData();
+  if (["bookings", "drivers", "vehicles"].includes(type)) await loadCoreData();
   const config = configs[type];
   const data = await api(config.endpoint);
   state.data[config.key] = data[config.key];
@@ -455,7 +477,7 @@ async function renderCrud(type) {
       <div class="toolbar">
         <div class="d-flex gap-2 flex-wrap">
           <input id="searchInput" class="form-control" placeholder="Search ${config.title.toLowerCase()}">
-          ${type === "bookings" ? statusFilter() : ""}
+          ${["bookings", "drivers", "vehicles"].includes(type) ? statusFilter(type) : ""}
         </div>
         <button class="btn btn-primary" id="addBtn"><i class="fa-solid fa-plus me-2"></i>Add ${config.title}</button>
       </div>
@@ -468,10 +490,15 @@ async function renderCrud(type) {
   bindRowActions(type);
 }
 
-function statusFilter() {
+function statusFilter(type = "bookings") {
+  const options = {
+    bookings: BOOKING_STATUSES,
+    drivers: DRIVER_STATUSES,
+    vehicles: VEHICLE_STATUSES,
+  }[type] || [];
   return `<select id="statusFilter" class="form-select">
     <option value="">All statuses</option>
-    ${["Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"].map((s) => `<option>${s}</option>`).join("")}
+    ${options.map((s) => `<option>${s}</option>`).join("")}
   </select>`;
 }
 
@@ -485,6 +512,7 @@ function crudTable(config, rows) {
 function crudRow(config, item) {
   const values = config.row(item).map((value) => `<td>${value}</td>`).join("");
   return `<tr data-id="${item.id}">${values}<td><div class="actions">
+    ${config.details ? `<button class="btn btn-outline-secondary btn-sm" data-action="view" title="View Details"><i class="fa-regular fa-eye"></i></button>` : ""}
     <button class="btn btn-outline-primary btn-sm" data-action="edit" title="Edit"><i class="fa-solid fa-pen"></i></button>
     <button class="btn btn-outline-danger btn-sm" data-action="delete" title="Delete"><i class="fa-solid fa-trash"></i></button>
   </div></td></tr>`;
@@ -496,7 +524,8 @@ function filterCrud(type) {
   const selectedStatus = $("#statusFilter")?.value || "";
   const rows = state.data[config.key].filter((item) => {
     const textMatch = JSON.stringify(item).toLowerCase().includes(search);
-    const statusMatch = !selectedStatus || item.status === selectedStatus;
+    const itemStatus = type === "drivers" ? driverStatus(item) : item.status;
+    const statusMatch = !selectedStatus || itemStatus === selectedStatus;
     return textMatch && statusMatch;
   });
   $(".table-responsive").innerHTML = crudTable(config, rows);
@@ -507,6 +536,7 @@ function bindRowActions(type) {
   document.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", async () => {
       const id = Number(button.closest("tr").dataset.id);
+      if (button.dataset.action === "view") openTripDetailModal(id);
       if (button.dataset.action === "edit") openEntityModal(type, state.data[configs[type].key].find((item) => item.id === id));
       if (button.dataset.action === "delete") await deleteEntity(type, id);
     });
@@ -518,7 +548,8 @@ function openEntityModal(type, item = null) {
   const config = configs[type];
   const fields = typeof config.fields === "function" ? config.fields() : config.fields;
   $("#modalTitle").textContent = `${item ? "Edit" : "Add"} ${config.title}`;
-  $("#modalBody").innerHTML = fields.map((field) => fieldControl(field, item)).join("");
+  setModalSaveVisible(true);
+  $("#modalBody").innerHTML = fields.map((field) => fieldControl(field, modalItem(type, item))).join("");
   state.modal.show();
 }
 
@@ -547,6 +578,10 @@ async function saveModalForm(event) {
   const { type, item } = state.modalMode;
   const config = configs[type];
   const body = Object.fromEntries(new FormData(event.target).entries());
+  const localPaymentStatus = type === "bookings" ? body.payment_status : null;
+  const localDriverStatus = type === "drivers" ? body.availability_status : null;
+  if (type === "bookings") delete body.payment_status;
+  if (type === "drivers") body.availability_status = apiDriverStatus(localDriverStatus);
   // CUSTOMER VALIDATION
 if (type === "customers") {
 
@@ -619,7 +654,13 @@ if (type === "bookings") {
 }
 
   try {
-    await api(item ? `${config.endpoint}/${item.id}` : config.endpoint, { method: item ? "PUT" : "POST", body });
+    const response = await api(item ? `${config.endpoint}/${item.id}` : config.endpoint, { method: item ? "PUT" : "POST", body });
+    if (type === "bookings") {
+      saveBookingPaymentStatus(item?.id || response.booking?.id, localPaymentStatus);
+    }
+    if (type === "drivers") {
+      saveDriverStatusOverride(item?.id || response.driver?.id, localDriverStatus);
+    }
     state.modal.hide();
     toast(`${config.title} saved`);
     await renderCrud(type);
@@ -651,14 +692,15 @@ async function renderAssignments() {
           <div class="panel-title"><h3>Assign Driver & Vehicle</h3></div>
           <form id="assignmentForm" class="row g-3">
             ${selectField("booking_id", "Booking", state.data.bookings.filter((b) => !b.assignment).map((b) => [b.id, `${b.booking_code} - ${b.customer_name}`]))}
-            ${selectField("driver_id", "Driver", state.data.drivers.map((d) => [d.id, `${d.name} (${d.availability_status})`]))}
-            ${selectField("vehicle_id", "Vehicle", state.data.vehicles.map((v) => [v.id, `${v.name} - ${v.vehicle_number} (${v.status})`]))}
+            ${selectField("driver_id", "Driver", assignableDrivers().map((d) => [d.id, `${d.name} (${driverStatus(d)})`]))}
+            ${selectField("vehicle_id", "Vehicle", assignableVehicles().map((v) => [v.id, `${v.name} - ${v.vehicle_number} (${v.status})`]))}
             <div class="col-12"><div class="form-floating"><textarea class="form-control" name="notes" placeholder="Notes" rows="3"></textarea><label>Notes</label></div></div>
             <div class="col-12"><button class="btn btn-primary w-100" type="submit"><i class="fa-solid fa-link me-2"></i>Create Assignment</button></div>
           </form>
         </div>
       </div>
-      <div class="col-xl-8"><div class="card-lite panel"><div class="panel-title"><h3>Assignment History</h3></div>${assignmentTimeline(state.data.assignments, true)}</div></div>
+    <div class="col-xl-8"><div class="card-lite panel"><div class="panel-title"><h3>Assignment History</h3></div>${assignmentTimeline(state.data.assignments, true)}</div></div>
+      <div class="col-12"><div class="card-lite panel"><div class="panel-title"><h3>Action History</h3></div>${actionHistoryList()}</div></div>
     </div>
   `;
   $("#assignmentForm").addEventListener("submit", saveAssignment);
@@ -709,13 +751,15 @@ async function saveAssignment(event) {
     const body = Object.fromEntries(
         new FormData(event.target).entries()
     );
+    if (!canAssignSelection(body.driver_id, body.vehicle_id)) return;
 
     try {
 
-        await api("/assignments", {
+        const response = await api("/assignments", {
             method: "POST",
             body
         });
+        recordAssignmentAction("Assignment created", response.assignment, "Driver and vehicle assigned");
 
         toast("Assignment created");
 
@@ -732,9 +776,10 @@ function openReassignModal(id) {
   const assignment = state.data.assignments.find((item) => item.id === id);
   state.modalMode = { type: "reassign", item: assignment };
   $("#modalTitle").textContent = `Reassign ${assignment.booking_code}`;
+  setModalSaveVisible(true);
   $("#modalBody").innerHTML = `
-    ${selectField("driver_id", "Driver", state.data.drivers.map((d) => [d.id, `${d.name} (${d.availability_status})`]))}
-    ${selectField("vehicle_id", "Vehicle", state.data.vehicles.map((v) => [v.id, `${v.name} - ${v.vehicle_number} (${v.status})`]))}
+    ${selectField("driver_id", "Driver", reassignableDrivers(assignment).map((d) => [d.id, `${d.name} (${driverStatus(d)})`]))}
+    ${selectField("vehicle_id", "Vehicle", reassignableVehicles(assignment).map((v) => [v.id, `${v.name} - ${v.vehicle_number} (${v.status})`]))}
     <div class="col-12"><div class="form-floating"><textarea class="form-control" name="notes" placeholder="Notes" rows="3">Reassignment</textarea><label>Notes</label></div></div>
   `;
   state.modal.show();
@@ -743,8 +788,13 @@ function openReassignModal(id) {
 async function saveReassignment(event) {
   event.preventDefault();
   const body = Object.fromEntries(new FormData(event.target).entries());
+  if (!canAssignSelection(body.driver_id, body.vehicle_id, state.modalMode.item)) return;
+  const previous = state.modalMode.item;
   try {
-    await api(`/assignments/${state.modalMode.item.id}`, { method: "PUT", body });
+    const response = await api(`/assignments/${state.modalMode.item.id}`, { method: "PUT", body });
+    if (String(previous.driver_id) !== String(body.driver_id)) recordAssignmentAction("Driver changed", response.assignment, `${previous.driver_name} changed`);
+    if (String(previous.vehicle_id) !== String(body.vehicle_id)) recordAssignmentAction("Vehicle changed", response.assignment, `${previous.vehicle_name} changed`);
+    recordAssignmentAction("Status updated", response.assignment, "Assignment updated");
     state.modal.hide();
     toast("Assignment updated");
     await renderAssignments();
@@ -754,17 +804,19 @@ async function saveReassignment(event) {
 }
 
 async function renderTrips() {
+  await loadCoreData();
   const res = await api("/trips");
   state.data.trips = res.trips;
   content.innerHTML = `<div class="card-lite panel">
     <div class="table-responsive">
       <table class="table table-hover align-middle">
-        <thead><tr><th>Booking ID</th><th>Customer</th><th>Assignment</th><th>Pickup</th><th>Drop</th><th>Date</th><th>Time</th><th>Status</th><th>Update</th></tr></thead>
-        <tbody>${state.data.trips.map(tripRow).join("") || emptyRow(9)}</tbody>
+        <thead><tr><th>Booking ID</th><th>Customer</th><th>Assignment</th><th>Pickup</th><th>Drop</th><th>Date</th><th>Time</th><th>Status</th><th>Update</th><th>Action</th></tr></thead>
+        <tbody>${state.data.trips.map(tripRow).join("") || emptyRow(10)}</tbody>
       </table>
     </div>
   </div>`;
   document.querySelectorAll("[data-trip-status]").forEach((select) => select.addEventListener("change", updateTripStatus));
+  document.querySelectorAll("[data-trip-detail]").forEach((button) => button.addEventListener("click", () => openTripDetailModal(Number(button.dataset.tripDetail), state.data.trips)));
 }
 
 function tripRow(item) {
@@ -790,12 +842,16 @@ function tripRow(item) {
         ${["Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"].map((s) => `<option ${s === item.status ? "selected" : ""}>${s}</option>`).join("")}
       </select>
     </td>
+    <td><button class="btn btn-outline-secondary btn-sm" data-trip-detail="${item.id}" title="View Details"><i class="fa-regular fa-eye"></i></button></td>
   </tr>`;
 }
 
 async function updateTripStatus(event) {
+  const trip = state.data.trips.find((item) => String(item.id) === String(event.target.dataset.tripStatus));
   try {
     await api(`/trips/${event.target.dataset.tripStatus}/status`, { method: "PUT", body: { status: event.target.value } });
+    recordTripHistory(Number(event.target.dataset.tripStatus), event.target.value, "Status updated");
+    if (trip?.assignment) recordAssignmentAction("Status updated", trip.assignment, `${trip.booking_code} set to ${event.target.value}`);
     toast("Trip status updated");
     await renderTrips();
   } catch (error) {
@@ -929,6 +985,234 @@ function bookingRows(rows) {
 </td></tr>`).join("") || emptyRow(6)}</tbody>`;
 }
 
+function modalItem(type, item) {
+  if (!item) return null;
+  if (type === "bookings") return { ...item, payment_status: bookingPaymentStatus(item) };
+  if (type === "drivers") return { ...item, availability_status: driverStatus(item) };
+  return item;
+}
+
+function storageObject(key) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveStorageObject(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function bookingPaymentStatus(booking) {
+  return booking?.payment_status || storageObject(STORAGE_KEYS.payment)[booking?.id] || "Pending";
+}
+
+function saveBookingPaymentStatus(id, status) {
+  if (!id || !status) return;
+  const payments = storageObject(STORAGE_KEYS.payment);
+  payments[id] = status;
+  saveStorageObject(STORAGE_KEYS.payment, payments);
+}
+
+function driverStatus(driver) {
+  const override = storageObject(STORAGE_KEYS.driverStatus)[driver?.id];
+  if (override) return override;
+  if (driver?.availability_status === "Assigned") return "On Trip";
+  return driver?.availability_status || "Available";
+}
+
+function apiDriverStatus(status) {
+  if (status === "On Trip") return "Assigned";
+  if (status === "Leave") return "Unavailable";
+  return status || "Available";
+}
+
+function saveDriverStatusOverride(id, status) {
+  if (!id || !status) return;
+  const statuses = storageObject(STORAGE_KEYS.driverStatus);
+  statuses[id] = status;
+  saveStorageObject(STORAGE_KEYS.driverStatus, statuses);
+}
+
+function assignableDrivers() {
+  return state.data.drivers.filter((driver) => driverStatus(driver) === "Available");
+}
+
+function assignableVehicles() {
+  return state.data.vehicles.filter((vehicle) => vehicle.status === "Available");
+}
+
+function reassignableDrivers(assignment) {
+  return state.data.drivers.filter((driver) => driverStatus(driver) === "Available" || String(driver.id) === String(assignment.driver_id));
+}
+
+function reassignableVehicles(assignment) {
+  return state.data.vehicles.filter((vehicle) => vehicle.status === "Available" || String(vehicle.id) === String(assignment.vehicle_id));
+}
+
+function canAssignSelection(driverId, vehicleId, currentAssignment = null) {
+  const driver = state.data.drivers.find((item) => String(item.id) === String(driverId));
+  const vehicle = state.data.vehicles.find((item) => String(item.id) === String(vehicleId));
+  const driverAllowed = driver && (driverStatus(driver) === "Available" || String(driver.id) === String(currentAssignment?.driver_id));
+  const vehicleAllowed = vehicle && (vehicle.status === "Available" || String(vehicle.id) === String(currentAssignment?.vehicle_id));
+  if (!driverAllowed) {
+    toast("Selected driver is not available for assignment", "danger");
+    return false;
+  }
+  if (!vehicleAllowed) {
+    toast("Selected vehicle is not available for assignment", "danger");
+    return false;
+  }
+  return true;
+}
+
+function tripDateTime(booking) {
+  return new Date(`${booking.trip_date}T${booking.trip_time || "00:00"}`);
+}
+
+function sameDay(dateA, dateB) {
+  return dateA.getFullYear() === dateB.getFullYear() && dateA.getMonth() === dateB.getMonth() && dateA.getDate() === dateB.getDate();
+}
+
+function tripTimingSummary(bookings) {
+  const now = new Date();
+  const today = new Date();
+  const upcomingTrips = bookings.filter((booking) => tripDateTime(booking) > now && booking.status !== "Completed");
+  const next = upcomingTrips.sort((a, b) => tripDateTime(a) - tripDateTime(b))[0];
+  return {
+    upcoming: upcomingTrips.length,
+    ongoing: bookings.filter((booking) => ["Driver Assigned", "Trip Started"].includes(booking.status)).length,
+    completedToday: bookings.filter((booking) => booking.status === "Completed" && sameDay(tripDateTime(booking), today)).length,
+    nextPickup: next ? `${next.trip_time} ${next.booking_code}` : "-",
+  };
+}
+
+function coordinatorAlerts() {
+  const alerts = [];
+  const now = new Date();
+  const soonLimit = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+  state.data.drivers.filter((driver) => ["Leave", "Unavailable"].includes(driverStatus(driver))).forEach((driver) => {
+    alerts.push({ type: "Driver unavailable", message: driver.name, level: "danger" });
+  });
+  state.data.vehicles.filter((vehicle) => vehicle.status === "Maintenance").forEach((vehicle) => {
+    alerts.push({ type: "Vehicle unavailable", message: `${vehicle.name} ${vehicle.vehicle_number}`, level: "danger" });
+  });
+  state.data.bookings.forEach((booking) => {
+    const startsAt = tripDateTime(booking);
+    if (startsAt >= now && startsAt <= soonLimit && booking.status !== "Completed") {
+      alerts.push({ type: "Trip starting soon", message: `${booking.booking_code} at ${booking.trip_time}`, level: "warning" });
+    }
+    if (startsAt < now && !["Trip Started", "Completed"].includes(booking.status)) {
+      alerts.push({ type: "Trip delayed", message: `${booking.booking_code} was scheduled for ${booking.trip_date} ${booking.trip_time}`, level: "warning" });
+    }
+    if (booking.assignment && (driverStatus({ id: booking.assignment.driver_id, availability_status: "Assigned" }) === "Unavailable" || booking.assignment.vehicle_status === "Maintenance")) {
+      alerts.push({ type: "Assignment conflict", message: booking.booking_code, level: "danger" });
+    }
+  });
+  state.data.assignments.forEach((assignment) => {
+    const booking = state.data.bookings.find((item) => item.id === assignment.booking_id);
+    const driver = state.data.drivers.find((item) => item.id === assignment.driver_id);
+    const vehicle = state.data.vehicles.find((item) => item.id === assignment.vehicle_id);
+    if (assignment.is_active && booking && (driver && ["Leave", "Unavailable"].includes(driverStatus(driver)) || vehicle?.status === "Maintenance")) {
+      alerts.push({ type: "Assignment conflict", message: `${assignment.booking_code} needs review`, level: "danger" });
+    }
+  });
+  return alerts.slice(0, 8);
+}
+
+function alertList(alerts) {
+  if (!alerts.length) return `<div class="text-center text-secondary py-4">No coordinator alerts</div>`;
+  return `<div class="alert-list">${alerts.map((alert) => `
+    <div class="alert-item alert-${alert.level}">
+      <strong>${escapeHtml(alert.type)}</strong>
+      <span>${escapeHtml(alert.message)}</span>
+    </div>`).join("")}</div>`;
+}
+
+function recordAssignmentAction(action, assignment, detail = "") {
+  if (!assignment) return;
+  const history = storageObject(STORAGE_KEYS.actionHistory);
+  const key = String(assignment.booking_id || assignment.id);
+  history[key] = history[key] || [];
+  history[key].unshift({
+    action,
+    detail,
+    booking_code: assignment.booking_code,
+    driver_name: assignment.driver_name,
+    vehicle_name: assignment.vehicle_name,
+    created_at: new Date().toISOString(),
+  });
+  saveStorageObject(STORAGE_KEYS.actionHistory, history);
+}
+
+function actionHistoryList(limit = 12) {
+  const history = Object.values(storageObject(STORAGE_KEYS.actionHistory)).flat().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
+  if (!history.length) return `<div class="text-center text-secondary py-4">No action history recorded yet</div>`;
+  return `<div class="timeline-list compact-history">${history.map((item) => `
+    <div class="timeline-item">
+      <div class="timeline-dot"></div>
+      <div class="timeline-card">
+        <div class="timeline-head"><strong>${escapeHtml(item.action)}</strong><small>${formatDateTime(item.created_at)}</small></div>
+        <div class="timeline-grid"><span>${escapeHtml(item.booking_code || "-")}</span><span>${escapeHtml(item.driver_name || "-")}</span><span>${escapeHtml(item.vehicle_name || "-")}</span><span>${escapeHtml(item.detail || "")}</span></div>
+      </div>
+    </div>`).join("")}</div>`;
+}
+
+function recordTripHistory(bookingId, status, remarks = "") {
+  const history = storageObject(STORAGE_KEYS.tripHistory);
+  history[bookingId] = history[bookingId] || [];
+  history[bookingId].unshift({ status, remarks, created_at: new Date().toISOString() });
+  saveStorageObject(STORAGE_KEYS.tripHistory, history);
+}
+
+function tripStatusHistory(booking) {
+  const saved = storageObject(STORAGE_KEYS.tripHistory)[booking.id] || [];
+  const assignmentHistory = (storageObject(STORAGE_KEYS.actionHistory)[booking.id] || []).map((item) => ({
+    status: item.action,
+    remarks: item.detail,
+    created_at: item.created_at,
+  }));
+  const base = [{ status: booking.status, remarks: "Current booking status", created_at: new Date().toISOString() }];
+  return [...saved, ...assignmentHistory, ...base].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+}
+
+function openTripDetailModal(id, sourceRows = null) {
+  const booking = (sourceRows || state.data.bookings || state.data.trips).find((item) => Number(item.id) === Number(id));
+  if (!booking) return;
+  const assignment = booking.assignment || state.data.assignments.find((item) => item.booking_id === booking.id && item.is_active);
+  const customer = state.data.customers.find((item) => item.id === booking.customer_id);
+  const driver = assignment ? state.data.drivers.find((item) => item.id === assignment.driver_id) : null;
+  const vehicle = assignment ? state.data.vehicles.find((item) => item.id === assignment.vehicle_id) : null;
+  state.modalMode = { type: "details", item: booking };
+  $("#modalTitle").textContent = `Trip Details ${booking.booking_code}`;
+  setModalSaveVisible(false);
+  $("#modalBody").innerHTML = `
+    <div class="col-md-6">${detailBlock("Customer information", [booking.customer_name || customer?.name, customer?.phone, customer?.email])}</div>
+    <div class="col-md-6">${detailBlock("Driver information", [assignment?.driver_name || driver?.name || "Not assigned", driver?.phone, driver ? driverStatus(driver) : ""])}</div>
+    <div class="col-md-6">${detailBlock("Vehicle information", [assignment?.vehicle_name || vehicle?.name || "Not assigned", assignment?.vehicle_number || vehicle?.vehicle_number, vehicle?.status])}</div>
+    <div class="col-md-6">${detailBlock("Trip information", [booking.pickup_location, booking.drop_location, `${booking.trip_date} ${booking.trip_time}`, `Payment: ${bookingPaymentStatus(booking)}`])}</div>
+    <div class="col-12">
+      <div class="detail-card">
+        <h4>Status history</h4>
+        <div class="history-stack">${tripStatusHistory(booking).map((item) => `
+          <div class="history-row"><div>${badge(item.status)}<span>${escapeHtml(item.remarks || "")}</span></div><small>${formatDateTime(item.created_at)}</small></div>
+        `).join("")}</div>
+      </div>
+    </div>
+  `;
+  state.modal.show();
+}
+
+function detailBlock(title, lines) {
+  return `<div class="detail-card"><h4>${title}</h4>${lines.filter(Boolean).map((line) => `<p>${escapeHtml(line)}</p>`).join("") || "<p>-</p>"}</div>`;
+}
+
+function setModalSaveVisible(show) {
+  const submit = $("#entityForm button[type='submit']");
+  if (submit) submit.classList.toggle("d-none", !show);
+}
+
 function badge(status) {
   return `<span class="badge-soft status-${String(status).replaceAll(" ", "-")}">${status}</span>`;
 }
@@ -1002,6 +1286,17 @@ function chart(id, type, data, colors) {
   });
 }
 
+function formatDateTime(value) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 function capitalize(value) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
@@ -1024,4 +1319,3 @@ function togglePassword() {
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
 }
-

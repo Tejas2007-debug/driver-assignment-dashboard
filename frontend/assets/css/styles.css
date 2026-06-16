@@ -678,12 +678,105 @@ a { text-decoration: none; }
 .status-Confirmed { background: #fef3c7; color: #92400e; }
 .status-Driver-Assigned,
 .status-Trip-Started,
-.status-Assigned { background: #dbeafe; color: #1d4ed8; }
+.status-Assigned,
+.status-On-Trip,
+.status-Partial,
+.status-Driver-changed,
+.status-Vehicle-changed,
+.status-Status-updated { background: #dbeafe; color: #1d4ed8; }
 .status-Completed,
-.status-Available { background: #dcfce7; color: #166534; }
+.status-Available,
+.status-Paid,
+.status-Assignment-created { background: #dcfce7; color: #166534; }
 .status-Unavailable,
 .status-Maintenance,
+.status-Leave,
 .status-Reassigned { background: #fee2e2; color: #991b1b; }
+
+.alert-list,
+.history-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.alert-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.alert-item strong {
+  font-size: 0.82rem;
+}
+
+.alert-item span {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.alert-danger {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.alert-warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.detail-card {
+  height: 100%;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.detail-card h4 {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  font-weight: 850;
+}
+
+.detail-card p {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.history-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.history-row:last-child {
+  border-bottom: 0;
+}
+
+.history-row > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.history-row small,
+.timeline-head small {
+  color: var(--muted);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.compact-history .timeline-card {
+  padding: 12px;
+}
 
 .actions {
   display: flex;

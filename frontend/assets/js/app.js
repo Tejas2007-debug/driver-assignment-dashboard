@@ -1,6 +1,7 @@
 const API_BASE = "https://driver-assignment-dashboard.onrender.com/api";
 const modules = [
   { id: "dashboard", label: "Dashboard", icon: "fa-chart-line", page: "dashboard.html", subtitle: "Centralized driver assignment operations" },
+  { id: "coordinator", label: "Coordinator", icon: "fa-bell", page: "coordinator.html", subtitle: "Operational monitoring and alerts" },
   { id: "customers", label: "Customers", icon: "fa-users", page: "customers.html", subtitle: "Manage customer records and details" },
   { id: "bookings", label: "Bookings", icon: "fa-calendar-check", page: "bookings.html", subtitle: "Create, filter, and manage trip bookings" },
   { id: "drivers", label: "Drivers", icon: "fa-id-card", page: "drivers.html", subtitle: "Manage driver availability and profiles" },
@@ -20,6 +21,7 @@ const state = {
 };
 
 const PAYMENT_STATUSES = ["Pending", "Partial", "Paid"];
+const FOLLOW_UP_STATUSES = ["Pending", "Completed", "Missed"];
 const DRIVER_STATUSES = ["Available", "On Trip", "Leave", "Unavailable"];
 const BOOKING_STATUSES = ["Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"];
 const VEHICLE_STATUSES = ["Available", "Assigned", "Maintenance"];
@@ -263,6 +265,7 @@ async function navigate(moduleId) {
   content.classList.add("fade-in");
 
   if (moduleId === "dashboard") await renderDashboard();
+  if (moduleId === "coordinator") await renderCoordinator();
   if (moduleId === "customers") await renderCrud("customers");
   if (moduleId === "bookings") await renderCrud("bookings");
   if (moduleId === "drivers") await renderCrud("drivers");
@@ -346,12 +349,21 @@ async function renderDashboard() {
       ${metric("Next Scheduled Pickup", timing.nextPickup, "fa-clock")}
     </div>
     <div class="row g-3 mb-3">
+      ${metric("Pending Payments", alerts.summary.pendingPayments, "fa-file-invoice-dollar")}
+      ${metric("Unassigned Bookings", alerts.summary.unassignedBookings, "fa-calendar-xmark")}
+      ${metric("Drivers on Leave", alerts.summary.driversOnLeave, "fa-user-clock")}
+      ${metric("Upcoming Trips", alerts.summary.upcomingTrips, "fa-clock")}
+    </div>
+    <div class="row g-3 mb-3">
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Weekly Bookings</h3></div><div class="chart-container"><canvas id="weeklyChart"></canvas></div></div></div>
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Trip Status Overview</h3></div><div class="chart-container"><canvas id="statusChart"></canvas></div></div></div>
     </div>
+    <div class="row g-3 mb-3">
+      <div class="col-12"><div class="card-lite panel"><div class="panel-title"><h3>Active Trip Timing Cards</h3></div>${activeTripTimingCards(state.data.bookings)}</div></div>
+    </div>
     <div class="row g-3">
-      <div class="col-xl-4"><div class="card-lite panel"><div class="panel-title"><h3>Coordinator Alerts</h3></div>${alertList(alerts)}</div></div>
+      <div class="col-xl-4"><div class="card-lite panel"><div class="panel-title"><h3>Coordinator Alerts</h3></div>${alertList(alerts.items)}</div></div>
       <div class="col-xl-4">${tablePanel("Recent Assignments", assignmentRows(data.recent_assignments))}</div>
       <div class="col-xl-4">${tablePanel("Upcoming Trips", bookingRows(data.upcoming_trips, false))}</div>
     </div>
@@ -460,9 +472,12 @@ const configs = {
       ["vehicle_type", "Vehicle Type", "text"],
       ["status", "Status", "select", ["Pending", "Confirmed", "Driver Assigned", "Trip Started", "Completed"]],
       ["payment_status", "Payment Status", "select", PAYMENT_STATUSES],
+      ["follow_up_date", "Follow-Up Date", "date", { required: false }],
+      ["follow_up_status", "Follow-Up Status", "select", FOLLOW_UP_STATUSES],
+      ["follow_up_note", "Follow-Up Note", "textarea", { required: false }],
     ],
-    headers: ["Booking ID", "Customer", "Pickup", "Drop", "Date", "Time", "Vehicle Type", "Status", "Payment", "Actions"],
-    row: (x) => [`<strong class="booking-id">${x.booking_code}</strong>`, profileCell(x.customer_name, x.vehicle_type, "customer"), x.pickup_location, x.drop_location, x.trip_date, x.trip_time, x.vehicle_type, badge(x.status), badge(bookingPaymentStatus(x))],
+    headers: ["Booking ID", "Invoice", "Customer", "Pickup", "Drop", "Date", "Time", "Vehicle Type", "Status", "Payment", "Actions"],
+    row: (x) => [`<strong class="booking-id">${x.booking_code}</strong>`, `<strong class="booking-id">${x.invoice_number || "-"}</strong>`, profileCell(x.customer_name, x.vehicle_type, "customer"), x.pickup_location, x.drop_location, x.trip_date, x.trip_time, x.vehicle_type, badge(x.status), badge(bookingPaymentStatus(x))],
     details: true,
   },
 };
@@ -555,8 +570,9 @@ function openEntityModal(type, item = null) {
 
 function fieldControl([name, label, type, options], item) {
   const value = item?.[name] ?? "";
+  const required = options?.required === false ? "" : "required";
   if (type === "textarea") {
-    return `<div class="col-12"><div class="form-floating"><textarea class="form-control" name="${name}" placeholder="${label}" rows="3">${escapeHtml(value)}</textarea><label>${label}</label></div></div>`;
+    return `<div class="col-12"><div class="form-floating"><textarea class="form-control" name="${name}" placeholder="${label}" rows="3" ${required}>${escapeHtml(value)}</textarea><label>${label}</label></div></div>`;
   }
   if (type === "select") {
     const opts = options.map((option) => {
@@ -564,9 +580,9 @@ function fieldControl([name, label, type, options], item) {
       const text = Array.isArray(option) ? option[1] : option;
       return `<option value="${val}" ${String(val) === String(value) ? "selected" : ""}>${text}</option>`;
     });
-    return `<div class="col-md-6"><div class="form-floating"><select class="form-select" name="${name}" required>${opts.join("")}</select><label>${label}</label></div></div>`;
+    return `<div class="col-md-6"><div class="form-floating"><select class="form-select" name="${name}" ${required}>${opts.join("")}</select><label>${label}</label></div></div>`;
   }
-  return `<div class="col-md-6"><div class="form-floating"><input class="form-control" name="${name}" type="${type}" value="${escapeHtml(value)}" placeholder="${label}" required><label>${label}</label></div></div>`;
+  return `<div class="col-md-6"><div class="form-floating"><input class="form-control" name="${name}" type="${type}" value="${escapeHtml(value)}" placeholder="${label}" ${required}><label>${label}</label></div></div>`;
 }
 
 async function saveModalForm(event) {
@@ -580,7 +596,6 @@ async function saveModalForm(event) {
   const body = Object.fromEntries(new FormData(event.target).entries());
   const localPaymentStatus = type === "bookings" ? body.payment_status : null;
   const localDriverStatus = type === "drivers" ? body.availability_status : null;
-  if (type === "bookings") delete body.payment_status;
   if (type === "drivers") body.availability_status = apiDriverStatus(localDriverStatus);
   // CUSTOMER VALIDATION
 if (type === "customers") {
@@ -657,6 +672,8 @@ if (type === "bookings") {
     const response = await api(item ? `${config.endpoint}/${item.id}` : config.endpoint, { method: item ? "PUT" : "POST", body });
     if (type === "bookings") {
       saveBookingPaymentStatus(item?.id || response.booking?.id, localPaymentStatus);
+      recordBookingAction(item ? "Booking Updated" : "Booking Created", response.booking, item ? "Booking record updated" : "Booking record created");
+      if (item && bookingPaymentStatus(item) !== localPaymentStatus) recordBookingAction("Payment Updated", response.booking, `Payment changed to ${localPaymentStatus}`);
     }
     if (type === "drivers") {
       saveDriverStatusOverride(item?.id || response.driver?.id, localDriverStatus);
@@ -695,6 +712,7 @@ async function renderAssignments() {
             ${selectField("driver_id", "Driver", assignableDrivers().map((d) => [d.id, `${d.name} (${driverStatus(d)})`]))}
             ${selectField("vehicle_id", "Vehicle", assignableVehicles().map((v) => [v.id, `${v.name} - ${v.vehicle_number} (${v.status})`]))}
             <div class="col-12"><div class="form-floating"><textarea class="form-control" name="notes" placeholder="Notes" rows="3"></textarea><label>Notes</label></div></div>
+            <div class="col-12"><div class="form-floating"><textarea class="form-control" name="route_notes" placeholder="Route Notes" rows="3"></textarea><label>Route Notes</label></div></div>
             <div class="col-12"><button class="btn btn-primary w-100" type="submit"><i class="fa-solid fa-link me-2"></i>Create Assignment</button></div>
           </form>
         </div>
@@ -705,6 +723,7 @@ async function renderAssignments() {
   `;
   $("#assignmentForm").addEventListener("submit", saveAssignment);
   document.querySelectorAll("[data-reassign]").forEach((button) => button.addEventListener("click", () => openReassignModal(Number(button.dataset.reassign))));
+  document.querySelectorAll("[data-assignment-detail]").forEach((button) => button.addEventListener("click", () => openAssignmentDetailModal(Number(button.dataset.assignmentDetail))));
   document.querySelectorAll("[data-delete-assignment]")
 .forEach((button) =>
     button.addEventListener("click", () =>
@@ -781,6 +800,7 @@ function openReassignModal(id) {
     ${selectField("driver_id", "Driver", reassignableDrivers(assignment).map((d) => [d.id, `${d.name} (${driverStatus(d)})`]))}
     ${selectField("vehicle_id", "Vehicle", reassignableVehicles(assignment).map((v) => [v.id, `${v.name} - ${v.vehicle_number} (${v.status})`]))}
     <div class="col-12"><div class="form-floating"><textarea class="form-control" name="notes" placeholder="Notes" rows="3">Reassignment</textarea><label>Notes</label></div></div>
+    <div class="col-12"><div class="form-floating"><textarea class="form-control" name="route_notes" placeholder="Route Notes" rows="3">${escapeHtml(assignment.route_notes || "")}</textarea><label>Route Notes</label></div></div>
   `;
   state.modal.show();
 }
@@ -810,8 +830,8 @@ async function renderTrips() {
   content.innerHTML = `<div class="card-lite panel">
     <div class="table-responsive">
       <table class="table table-hover align-middle">
-        <thead><tr><th>Booking ID</th><th>Customer</th><th>Assignment</th><th>Pickup</th><th>Drop</th><th>Date</th><th>Time</th><th>Status</th><th>Update</th><th>Action</th></tr></thead>
-        <tbody>${state.data.trips.map(tripRow).join("") || emptyRow(10)}</tbody>
+        <thead><tr><th>Booking ID</th><th>Customer</th><th>Assignment</th><th>Pickup</th><th>Drop</th><th>Route Notes</th><th>Date</th><th>Time</th><th>Status</th><th>Update</th><th>Action</th></tr></thead>
+        <tbody>${state.data.trips.map(tripRow).join("") || emptyRow(11)}</tbody>
       </table>
     </div>
   </div>`;
@@ -831,6 +851,7 @@ function tripRow(item) {
     </td>
     <td>${item.pickup_location}</td>
     <td>${item.drop_location}</td>
+    <td>${escapeHtml(item.assignment?.route_notes || "-")}</td>
     <td class="text-nowrap">${item.trip_date}</td>
     <td class="text-nowrap">${item.trip_time}</td>
     <td style="min-width: 130px;">
@@ -864,6 +885,7 @@ async function renderReports(period = "daily") {
   const totalAssignments = res.assignments.length;
   const activeDrivers = res.driver_utilization.filter((item) => item.value > 0).length;
   const activeVehicles = res.vehicle_utilization.filter((item) => item.value > 0).length;
+  const paidPayments = (res.payment_summary || []).find((item) => item.label === "Paid")?.value || 0;
   content.innerHTML = `
     <div class="toolbar">
       <div class="btn-group" role="group">
@@ -877,11 +899,20 @@ async function renderReports(period = "daily") {
     <div class="row g-3 mb-3">
       ${reportMetric("Assignments", totalAssignments, "fa-clipboard-check")}
       ${reportMetric("Active Drivers", activeDrivers, "fa-id-card")}
-      ${reportMetric("Active Vehicles", activeVehicles, "fa-car-side")} 
+      ${reportMetric("Active Vehicles", activeVehicles, "fa-car-side")}
+      ${reportMetric("Paid Payments", paidPayments, "fa-file-invoice-dollar")} 
     </div>
     <div class="row g-3 mb-3">
       <div class="col-lg-6"><div class="card-lite panel"><div class="panel-title"><h3>Driver Utilization</h3></div><div class="chart-container"><canvas id="driverUtilChart"></canvas></div></div></div>
       <div class="col-lg-6"><div class="card-lite panel"><div class="panel-title"><h3>Vehicle Utilization</h3></div><div class="chart-container"><canvas id="vehicleUtilChart"></canvas></div></div></div>
+    </div>
+    <div class="row g-3 mb-3">
+      <div class="col-lg-6"><div class="card-lite panel"><div class="panel-title"><h3>Payment Summary</h3></div>${summaryRows(res.payment_summary || [])}</div></div>
+      <div class="col-lg-6"><div class="card-lite panel"><div class="panel-title"><h3>Assignment Summary</h3></div>${summaryRows(res.assignment_summary || [])}</div></div>
+    </div>
+    <div class="row g-3 mb-3">
+      <div class="col-lg-6">${tablePanel("Driver Utilization Summary", summaryTableRows(res.driver_utilization))}</div>
+      <div class="col-lg-6">${tablePanel("Vehicle Utilization Summary", summaryTableRows(res.vehicle_utilization))}</div>
     </div>
     ${tablePanel(`${capitalize(period)} Assignment Report`, assignmentRows(res.assignments))}
   `;
@@ -924,22 +955,35 @@ function tablePanel(title, rows) {
     <div class="table-responsive"><table class="table table-hover">${rows}</table></div></div>`;
 }
 
+function summaryRows(rows) {
+  if (!rows.length) return `<div class="text-center text-secondary py-4">No summary data</div>`;
+  return `<div class="alert-list">${rows.map((item) => `
+    <div class="alert-item">
+      <div class="timeline-head"><strong>${escapeHtml(item.label || "-")}</strong><span class="badge-soft status-Assigned">${item.value}</span></div>
+    </div>`).join("")}</div>`;
+}
+
+function summaryTableRows(rows) {
+  return `<thead><tr><th>Name</th><th>Total Assignments</th></tr></thead>
+  <tbody>${rows.map((item) => `<tr><td>${escapeHtml(item.label || "-")}</td><td><strong>${item.value}</strong></td></tr>`).join("") || emptyRow(2)}</tbody>`;
+}
+
 function assignmentRows(rows, actions = false) {
-  return `<thead><tr><th>Booking</th><th>Customer</th><th>Driver</th><th>Vehicle</th><th>Date</th><th>Status</th>${actions ? "<th>Action</th>" : ""}</tr></thead>
+  return `<thead><tr><th>Booking</th><th>Invoice</th><th>Customer</th><th>Driver</th><th>Vehicle</th><th>Date</th><th>Payment</th><th>Status</th>${actions ? "<th>Action</th>" : ""}</tr></thead>
   <tbody>${rows.map((item) => `<tr>
     <td>
     <strong class="booking-id">
         ${item.booking_code}
     </strong>
-</td><td>${item.customer_name || "-"}</td><td>${item.driver_name}</td><td>${item.vehicle_name}</td>
-    <td>${item.trip_date || "-"}</td><td>${badge(item.status || (item.is_active ? "Assigned" : "Reassigned"))}</td>
+</td><td>${item.invoice_number || "-"}</td><td>${item.customer_name || "-"}</td><td>${item.driver_name}</td><td>${item.vehicle_name}</td>
+    <td>${item.trip_date || "-"}</td><td>${badge(item.payment_status || "-")}</td><td>${badge(item.status || (item.is_active ? "Assigned" : "Reassigned"))}</td>
     ${actions ? `
 <td><div class="actions">
 <button class="btn btn-outline-primary btn-sm" data-reassign="${item.id}" title="Reassign"><i class="fa-solid fa-rotate me-1"></i>Reassign</button>
 <button class="btn btn-outline-danger btn-sm ms-2" data-delete-assignment="${item.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
 </div></td>
 ` : ""}
-  </tr>`).join("") || emptyRow(actions ? 7 : 6)}</tbody>`;
+  </tr>`).join("") || emptyRow(actions ? 9 : 8)}</tbody>`;
 }
 
 function assignmentTimeline(rows, actions = false) {
@@ -950,6 +994,11 @@ function assignmentTimeline(rows, actions = false) {
       <div class="timeline-grid"><span><i class="fa-regular fa-user"></i>${item.customer_name || "-"}</span><span><i class="fa-solid fa-id-card"></i>${item.driver_name}</span><span><i class="fa-solid fa-car-side"></i>${item.vehicle_name}</span><span><i class="fa-regular fa-calendar"></i>${item.trip_date || "-"}</span></div>
       ${actions ? `
 <div class="mt-3 d-flex gap-2">
+
+<button class="btn btn-outline-secondary btn-sm"
+        data-assignment-detail="${item.id}">
+    <i class="fa-regular fa-eye"></i>
+</button>
 
 <button class="btn btn-outline-primary btn-sm"
         data-reassign="${item.id}">
@@ -1088,26 +1137,61 @@ function tripTimingSummary(bookings) {
   };
 }
 
+function activeTripTimingCards(bookings) {
+  const active = bookings.filter((booking) => ["Driver Assigned", "Trip Started"].includes(booking.status)).slice(0, 8);
+  if (!active.length) return `<div class="text-center text-secondary py-4">No active trip timing cards</div>`;
+  return `<div class="trip-card-grid">${active.map((booking) => `
+    <div class="trip-timing-card">
+      <div class="timeline-head"><strong class="booking-id">${escapeHtml(booking.booking_code)}</strong>${badge(booking.status)}</div>
+      <div class="timeline-grid">
+        <span><i class="fa-solid fa-id-card"></i>${escapeHtml(booking.assignment?.driver_name || "Not assigned")}</span>
+        <span><i class="fa-solid fa-car-side"></i>${escapeHtml(booking.assignment?.vehicle_name || "Not assigned")}</span>
+        <span><i class="fa-solid fa-location-dot"></i>${escapeHtml(booking.pickup_location)}</span>
+        <span><i class="fa-solid fa-flag-checkered"></i>${escapeHtml(booking.drop_location)}</span>
+        <span><i class="fa-regular fa-calendar"></i>${escapeHtml(booking.trip_date)}</span>
+        <span><i class="fa-regular fa-clock"></i>${escapeHtml(booking.trip_time)}</span>
+      </div>
+    </div>`).join("")}</div>`;
+}
+
 function coordinatorAlerts() {
-  const alerts = [];
+  const items = [];
   const now = new Date();
-  const soonLimit = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+  const soonLimit = new Date(now.getTime() + getCoordinatorWindowHours() * 60 * 60 * 1000);
+  const summary = {
+    pendingPayments: state.data.bookings.filter((booking) => bookingPaymentStatus(booking) !== "Paid").length,
+    unassignedBookings: state.data.bookings.filter((booking) => !booking.assignment && booking.status !== "Completed").length,
+    driversOnLeave: state.data.drivers.filter((driver) => ["Leave", "Unavailable"].includes(driverStatus(driver))).length,
+    upcomingTrips: state.data.bookings.filter((booking) => {
+      const startsAt = tripDateTime(booking);
+      return startsAt >= now && startsAt <= soonLimit && booking.status !== "Completed";
+    }).length,
+  };
   state.data.drivers.filter((driver) => ["Leave", "Unavailable"].includes(driverStatus(driver))).forEach((driver) => {
-    alerts.push({ type: "Driver unavailable", message: driver.name, level: "danger" });
+    items.push({ type: "Driver on leave", message: driver.name, severity: "High" });
   });
   state.data.vehicles.filter((vehicle) => vehicle.status === "Maintenance").forEach((vehicle) => {
-    alerts.push({ type: "Vehicle unavailable", message: `${vehicle.name} ${vehicle.vehicle_number}`, level: "danger" });
+    items.push({ type: "Vehicle unavailable", message: `${vehicle.name} ${vehicle.vehicle_number}`, severity: "High" });
   });
   state.data.bookings.forEach((booking) => {
     const startsAt = tripDateTime(booking);
+    if (!booking.assignment && booking.status !== "Completed") {
+      items.push({ type: "Unassigned booking", message: `${booking.booking_code} ${booking.trip_date} ${booking.trip_time}`, severity: "High" });
+    }
+    if (bookingPaymentStatus(booking) !== "Paid") {
+      items.push({ type: "Pending payment", message: `${booking.invoice_number || booking.booking_code} - ${bookingPaymentStatus(booking)}`, severity: "Medium" });
+    }
+    if (booking.follow_up_date && new Date(`${booking.follow_up_date}T00:00`) < new Date(new Date().toDateString()) && (booking.follow_up_status || "Pending") === "Pending") {
+      items.push({ type: "Overdue follow-up", message: `${booking.booking_code} - ${booking.follow_up_note || booking.follow_up_date}`, severity: "High" });
+    }
     if (startsAt >= now && startsAt <= soonLimit && booking.status !== "Completed") {
-      alerts.push({ type: "Trip starting soon", message: `${booking.booking_code} at ${booking.trip_time}`, level: "warning" });
+      items.push({ type: "Upcoming trip", message: `${booking.booking_code} at ${booking.trip_time}`, severity: "Low" });
     }
     if (startsAt < now && !["Trip Started", "Completed"].includes(booking.status)) {
-      alerts.push({ type: "Trip delayed", message: `${booking.booking_code} was scheduled for ${booking.trip_date} ${booking.trip_time}`, level: "warning" });
+      items.push({ type: "Trip delayed", message: `${booking.booking_code} was scheduled for ${booking.trip_date} ${booking.trip_time}`, severity: "Medium" });
     }
     if (booking.assignment && (driverStatus({ id: booking.assignment.driver_id, availability_status: "Assigned" }) === "Unavailable" || booking.assignment.vehicle_status === "Maintenance")) {
-      alerts.push({ type: "Assignment conflict", message: booking.booking_code, level: "danger" });
+      items.push({ type: "Assignment conflict", message: booking.booking_code, severity: "High" });
     }
   });
   state.data.assignments.forEach((assignment) => {
@@ -1115,19 +1199,102 @@ function coordinatorAlerts() {
     const driver = state.data.drivers.find((item) => item.id === assignment.driver_id);
     const vehicle = state.data.vehicles.find((item) => item.id === assignment.vehicle_id);
     if (assignment.is_active && booking && (driver && ["Leave", "Unavailable"].includes(driverStatus(driver)) || vehicle?.status === "Maintenance")) {
-      alerts.push({ type: "Assignment conflict", message: `${assignment.booking_code} needs review`, level: "danger" });
+      items.push({ type: "Assignment conflict", message: `${assignment.booking_code} needs review`, severity: "High", route_notes: assignment.route_notes });
     }
   });
-  return alerts.slice(0, 8);
+  return { summary, items: items.slice(0, 12) };
 }
 
 function alertList(alerts) {
   if (!alerts.length) return `<div class="text-center text-secondary py-4">No coordinator alerts</div>`;
   return `<div class="alert-list">${alerts.map((alert) => `
-    <div class="alert-item alert-${alert.level}">
-      <strong>${escapeHtml(alert.type)}</strong>
+    <div class="alert-item alert-${severityLevel(alert.severity)}">
+      <div class="timeline-head"><strong>${escapeHtml(alert.type)}</strong>${severityBadge(alert.severity)}</div>
       <span>${escapeHtml(alert.message)}</span>
+      ${alert.route_notes ? `<span>Route Notes: ${escapeHtml(alert.route_notes)}</span>` : ""}
     </div>`).join("")}</div>`;
+}
+
+function severityLevel(severity) {
+  return severity === "High" ? "danger" : severity === "Medium" ? "warning" : "low";
+}
+
+function severityBadge(severity) {
+  return `<span class="badge-soft severity-${severity}">${severity}</span>`;
+}
+
+function getCoordinatorWindowHours() {
+  return Number(localStorage.getItem("mtt_coordinator_window_hours") || 24);
+}
+
+async function renderCoordinator() {
+  await loadCoreData();
+  const hours = getCoordinatorWindowHours();
+  let data = null;
+  try {
+    data = await api(`/coordinator?hours=${hours}`);
+  } catch {
+    const fallback = coordinatorAlerts();
+    data = {
+      counters: {
+        unassigned_bookings: fallback.summary.unassignedBookings,
+        drivers_on_leave: fallback.summary.driversOnLeave,
+        vehicles_unavailable: state.data.vehicles.filter((vehicle) => vehicle.status === "Maintenance").length,
+        upcoming_trips: fallback.summary.upcomingTrips,
+        pending_payments: fallback.summary.pendingPayments,
+        overdue_follow_ups: fallback.items.filter((item) => item.type === "Overdue follow-up").length,
+      },
+      unassigned_bookings: state.data.bookings.filter((booking) => !booking.assignment && booking.status !== "Completed"),
+      drivers_on_leave: state.data.drivers.filter((driver) => ["Leave", "Unavailable"].includes(driverStatus(driver))),
+      vehicles_unavailable: state.data.vehicles.filter((vehicle) => vehicle.status === "Maintenance"),
+      upcoming_trips: state.data.bookings.filter((booking) => {
+        const startsAt = tripDateTime(booking);
+        const now = new Date();
+        return startsAt >= now && startsAt <= new Date(now.getTime() + hours * 60 * 60 * 1000) && booking.status !== "Completed";
+      }),
+      pending_payments: state.data.bookings.filter((booking) => bookingPaymentStatus(booking) !== "Paid"),
+      overdue_follow_ups: state.data.bookings.filter((booking) => booking.follow_up_date && new Date(`${booking.follow_up_date}T00:00`) < new Date(new Date().toDateString()) && (booking.follow_up_status || "Pending") === "Pending"),
+      recent_activity: recentActionHistory(12),
+    };
+  }
+  const alerts = coordinatorAlerts().items;
+  content.innerHTML = `
+    <div class="toolbar">
+      <div class="d-flex gap-2 flex-wrap align-items-center">
+        <select id="windowSelect" class="form-select">
+          ${[2, 6, 12, 24, 48].map((value) => `<option value="${value}" ${value === hours ? "selected" : ""}>${value} hour window</option>`).join("")}
+        </select>
+      </div>
+    </div>
+    <div class="row g-3 mb-3">
+      ${metric("Unassigned Bookings", data.counters.unassigned_bookings, "fa-calendar-xmark")}
+      ${metric("Drivers on Leave", data.counters.drivers_on_leave, "fa-user-clock")}
+      ${metric("Vehicles Unavailable", data.counters.vehicles_unavailable, "fa-screwdriver-wrench")}
+      ${metric("Upcoming Trips", data.counters.upcoming_trips, "fa-clock")}
+      ${metric("Pending Payments", data.counters.pending_payments, "fa-file-invoice-dollar")}
+      ${metric("Overdue Follow-Ups", data.counters.overdue_follow_ups, "fa-phone-volume")}
+    </div>
+    <div class="row g-3 mb-3">
+      <div class="col-xl-5"><div class="card-lite panel"><div class="panel-title"><h3>Operational Alerts</h3></div>${alertList(alerts)}</div></div>
+      <div class="col-xl-7">${tablePanel("Upcoming Trips", coordinatorBookingRows(data.upcoming_trips, true))}</div>
+    </div>
+    <div class="row g-3 mb-3">
+      <div class="col-xl-6">${tablePanel("Unassigned Bookings", coordinatorBookingRows(data.unassigned_bookings))}</div>
+      <div class="col-xl-6">${tablePanel("Pending Payments", coordinatorBookingRows(data.pending_payments))}</div>
+    </div>
+    <div class="row g-3 mb-3">
+      <div class="col-xl-6">${tablePanel("Drivers on Leave", driverRows(data.drivers_on_leave))}</div>
+      <div class="col-xl-6">${tablePanel("Vehicles in Maintenance", vehicleRows(data.vehicles_unavailable))}</div>
+    </div>
+    <div class="row g-3">
+      <div class="col-xl-6">${tablePanel("Overdue Follow-Ups", followUpRows(data.overdue_follow_ups))}</div>
+      <div class="col-xl-6"><div class="card-lite panel"><div class="panel-title"><h3>Recent Activity</h3></div>${activityList(data.recent_activity)}</div></div>
+    </div>
+  `;
+  $("#windowSelect").addEventListener("change", (event) => {
+    localStorage.setItem("mtt_coordinator_window_hours", event.target.value);
+    renderCoordinator();
+  });
 }
 
 function recordAssignmentAction(action, assignment, detail = "") {
@@ -1146,17 +1313,71 @@ function recordAssignmentAction(action, assignment, detail = "") {
   saveStorageObject(STORAGE_KEYS.actionHistory, history);
 }
 
+function recordBookingAction(action, booking, detail = "") {
+  if (!booking) return;
+  const history = storageObject(STORAGE_KEYS.actionHistory);
+  const key = String(booking.id);
+  history[key] = history[key] || [];
+  history[key].unshift({
+    action,
+    detail,
+    booking_code: booking.booking_code,
+    invoice_number: booking.invoice_number,
+    driver_name: booking.assignment?.driver_name,
+    vehicle_name: booking.assignment?.vehicle_name,
+    created_at: new Date().toISOString(),
+  });
+  saveStorageObject(STORAGE_KEYS.actionHistory, history);
+}
+
+function recentActionHistory(limit = 12) {
+  return Object.values(storageObject(STORAGE_KEYS.actionHistory)).flat().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
+}
+
 function actionHistoryList(limit = 12) {
-  const history = Object.values(storageObject(STORAGE_KEYS.actionHistory)).flat().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
+  const history = recentActionHistory(limit);
+  if (!history.length) return `<div class="text-center text-secondary py-4">No action history recorded yet</div>`;
+  return activityList(history);
+}
+
+function activityList(history) {
   if (!history.length) return `<div class="text-center text-secondary py-4">No action history recorded yet</div>`;
   return `<div class="timeline-list compact-history">${history.map((item) => `
     <div class="timeline-item">
       <div class="timeline-dot"></div>
       <div class="timeline-card">
         <div class="timeline-head"><strong>${escapeHtml(item.action)}</strong><small>${formatDateTime(item.created_at)}</small></div>
-        <div class="timeline-grid"><span>${escapeHtml(item.booking_code || "-")}</span><span>${escapeHtml(item.driver_name || "-")}</span><span>${escapeHtml(item.vehicle_name || "-")}</span><span>${escapeHtml(item.detail || "")}</span></div>
+        <div class="timeline-grid"><span>${escapeHtml(item.booking_code || "-")}</span><span>${escapeHtml(item.invoice_number || "-")}</span><span>${escapeHtml(item.driver_name || "-")}</span><span>${escapeHtml(item.vehicle_name || "-")}</span><span>${escapeHtml(item.detail || "")}</span></div>
       </div>
     </div>`).join("")}</div>`;
+}
+
+function coordinatorBookingRows(rows, includeRouteNotes = false) {
+  return `<thead><tr><th>Booking</th><th>Invoice</th><th>Customer</th><th>Date</th><th>Payment</th><th>Status</th>${includeRouteNotes ? "<th>Route Notes</th>" : ""}</tr></thead>
+  <tbody>${rows.map((item) => `<tr>
+    <td><strong class="booking-id">${escapeHtml(item.booking_code)}</strong></td>
+    <td><strong class="booking-id">${escapeHtml(item.invoice_number || "-")}</strong></td>
+    <td>${escapeHtml(item.customer_name || "-")}</td>
+    <td>${escapeHtml(item.trip_date || "-")} ${escapeHtml(item.trip_time || "")}</td>
+    <td>${badge(bookingPaymentStatus(item))}</td>
+    <td>${badge(item.status)}</td>
+    ${includeRouteNotes ? `<td>${escapeHtml(item.assignment?.route_notes || "-")}</td>` : ""}
+  </tr>`).join("") || emptyRow(includeRouteNotes ? 7 : 6)}</tbody>`;
+}
+
+function driverRows(rows) {
+  return `<thead><tr><th>Driver</th><th>Phone</th><th>License</th><th>Status</th></tr></thead>
+  <tbody>${rows.map((item) => `<tr><td>${profileCell(item.name, `${item.experience} years`, "driver")}</td><td>${escapeHtml(item.phone)}</td><td>${escapeHtml(item.license_number)}</td><td>${badge(driverStatus(item))}</td></tr>`).join("") || emptyRow(4)}</tbody>`;
+}
+
+function vehicleRows(rows) {
+  return `<thead><tr><th>Vehicle</th><th>Number</th><th>Type</th><th>Status</th></tr></thead>
+  <tbody>${rows.map((item) => `<tr><td>${vehicleCell(item)}</td><td>${escapeHtml(item.vehicle_number)}</td><td>${escapeHtml(item.vehicle_type)}</td><td>${badge(item.status)}</td></tr>`).join("") || emptyRow(4)}</tbody>`;
+}
+
+function followUpRows(rows) {
+  return `<thead><tr><th>Booking</th><th>Customer</th><th>Follow-Up Date</th><th>Note</th><th>Status</th></tr></thead>
+  <tbody>${rows.map((item) => `<tr><td><strong class="booking-id">${escapeHtml(item.booking_code)}</strong></td><td>${escapeHtml(item.customer_name || "-")}</td><td>${escapeHtml(item.follow_up_date || "-")}</td><td>${escapeHtml(item.follow_up_note || "-")}</td><td>${badge(item.follow_up_status || "Pending")}</td></tr>`).join("") || emptyRow(5)}</tbody>`;
 }
 
 function recordTripHistory(bookingId, status, remarks = "") {
@@ -1192,12 +1413,46 @@ function openTripDetailModal(id, sourceRows = null) {
     <div class="col-md-6">${detailBlock("Driver information", [assignment?.driver_name || driver?.name || "Not assigned", driver?.phone, driver ? driverStatus(driver) : ""])}</div>
     <div class="col-md-6">${detailBlock("Vehicle information", [assignment?.vehicle_name || vehicle?.name || "Not assigned", assignment?.vehicle_number || vehicle?.vehicle_number, vehicle?.status])}</div>
     <div class="col-md-6">${detailBlock("Trip information", [booking.pickup_location, booking.drop_location, `${booking.trip_date} ${booking.trip_time}`, `Payment: ${bookingPaymentStatus(booking)}`])}</div>
+    <div class="col-md-6">${detailBlock("Invoice and follow-up", [`Invoice: ${booking.invoice_number || "-"}`, `Follow-Up: ${booking.follow_up_date || "-"}`, `Follow-Up Status: ${booking.follow_up_status || "Pending"}`, booking.follow_up_note])}</div>
+    <div class="col-md-6">${detailBlock("Route Notes", [assignment?.route_notes || "-"])}</div>
     <div class="col-12">
       <div class="detail-card">
         <h4>Status history</h4>
         <div class="history-stack">${tripStatusHistory(booking).map((item) => `
           <div class="history-row"><div>${badge(item.status)}<span>${escapeHtml(item.remarks || "")}</span></div><small>${formatDateTime(item.created_at)}</small></div>
         `).join("")}</div>
+      </div>
+    </div>
+  `;
+  state.modal.show();
+}
+
+function openAssignmentDetailModal(id) {
+  const assignment = state.data.assignments.find((item) => Number(item.id) === Number(id));
+  if (!assignment) return;
+  state.modalMode = { type: "assignment-details", item: assignment };
+  $("#modalTitle").textContent = `Assignment Details ${assignment.booking_code}`;
+  setModalSaveVisible(false);
+  $("#modalBody").innerHTML = `
+    <div class="col-md-6">${detailBlock("Assignment Details", [
+      `Booking: ${assignment.booking_code}`,
+      `Customer: ${assignment.customer_name || "-"}`,
+      `Status: ${assignment.status || (assignment.is_active ? "Assigned" : "Reassigned")}`,
+      `Notes: ${assignment.notes || "-"}`
+    ])}</div>
+    <div class="col-md-6">${detailBlock("Route Notes", [assignment.route_notes || "-"])}</div>
+    <div class="col-12">
+      <div class="detail-card">
+        <h4>Driver Trip Briefing</h4>
+        <div class="timeline-grid">
+          <span><i class="fa-solid fa-id-card"></i>${escapeHtml(assignment.driver_name || "-")}</span>
+          <span><i class="fa-solid fa-car-side"></i>${escapeHtml(`${assignment.vehicle_name || "-"} ${assignment.vehicle_number || ""}`)}</span>
+          <span><i class="fa-solid fa-location-dot"></i>${escapeHtml(assignment.pickup_location || "-")}</span>
+          <span><i class="fa-solid fa-flag-checkered"></i>${escapeHtml(assignment.drop_location || "-")}</span>
+          <span><i class="fa-regular fa-calendar"></i>${escapeHtml(assignment.trip_date || "-")}</span>
+          <span><i class="fa-regular fa-clock"></i>${escapeHtml(assignment.trip_time || "-")}</span>
+          <span><i class="fa-regular fa-note-sticky"></i>${escapeHtml(assignment.route_notes || assignment.notes || "-")}</span>
+        </div>
       </div>
     </div>
   `;

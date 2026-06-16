@@ -50,6 +50,7 @@ CREATE TABLE vehicles (
 CREATE TABLE bookings (
   id INT AUTO_INCREMENT PRIMARY KEY,
   booking_code VARCHAR(30) NOT NULL UNIQUE,
+  invoice_number VARCHAR(30) UNIQUE,
   customer_id INT NOT NULL,
   pickup_location VARCHAR(220) NOT NULL,
   drop_location VARCHAR(220) NOT NULL,
@@ -57,6 +58,10 @@ CREATE TABLE bookings (
   trip_time TIME NOT NULL,
   vehicle_type VARCHAR(80) NOT NULL,
   status ENUM('Pending','Confirmed','Driver Assigned','Trip Started','Completed') NOT NULL DEFAULT 'Pending',
+  payment_status ENUM('Pending','Partial','Paid') NOT NULL DEFAULT 'Pending',
+  follow_up_date DATE,
+  follow_up_note TEXT,
+  follow_up_status ENUM('Pending','Completed','Missed') NOT NULL DEFAULT 'Pending',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_bookings_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
@@ -71,6 +76,7 @@ CREATE TABLE assignments (
   vehicle_id INT NOT NULL,
   assigned_by INT NULL,
   notes TEXT,
+  route_notes TEXT,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -94,4 +100,19 @@ CREATE TABLE trip_history (
   CONSTRAINT fk_trip_history_booking FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
   CONSTRAINT fk_trip_history_user FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_trip_history_booking (booking_id)
+);
+
+CREATE TABLE activity_logs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  action VARCHAR(80) NOT NULL,
+  booking_id INT NULL,
+  assignment_id INT NULL,
+  detail TEXT,
+  changed_by INT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_activity_booking FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL,
+  CONSTRAINT fk_activity_assignment FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE SET NULL,
+  CONSTRAINT fk_activity_user FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_activity_action (action)
 );

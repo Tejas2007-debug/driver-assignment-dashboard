@@ -11,7 +11,7 @@ from flask import Blueprint, jsonify, request, session
 from sqlalchemy import func, or_
 
 from .extensions import db
-from .models import Assignment, Booking, Customer, Driver, TripHistory, User, Vehicle
+from .models import ActivityLog, Assignment, Booking, Customer, Driver, TripHistory, User, Vehicle
 from .utils import (
     BOOKING_STATUSES,
     DRIVER_STATUSES,
@@ -41,6 +41,29 @@ def fail(message, status=400):
 
 def current_user_id():
     return session.get("user_id")
+
+
+def next_invoice_number():
+    last = Booking.query.filter(Booking.invoice_number.isnot(None)).order_by(Booking.id.desc()).first()
+    if not last or not last.invoice_number:
+        return "INV001"
+    try:
+        number = int(last.invoice_number.replace("INV", "")) + 1
+    except ValueError:
+        number = Booking.query.count() + 1
+    return f"INV{number:03d}"
+
+
+def log_action(action, booking=None, assignment=None, detail=None):
+    db.session.add(
+        ActivityLog(
+            action=action,
+            booking=booking,
+            assignment=assignment,
+            detail=detail,
+            changed_by=current_user_id(),
+        )
+    )
 
 
 @api_bp.post("/auth/login")
@@ -88,6 +111,10 @@ def dashboard():
         "available_drivers": Driver.query.filter_by(availability_status="Available").count(),
         "assigned_drivers": Driver.query.filter_by(availability_status="Assigned").count(),
         "available_vehicles": Vehicle.query.filter_by(status="Available").count(),
+        "pending_payments": Booking.query.filter(Booking.payment_status != "Paid").count(),
+        "unassigned_bookings": Booking.query.filter(~Booking.assignments.any(Assignment.is_active.is_(True)), Booking.status != "Completed").count(),
+        "drivers_on_leave": Driver.query.filter_by(availability_status="Unavailable").count(),
+        "upcoming_trips": Booking.query.filter(Booking.trip_date >= today, Booking.status != "Completed").count(),
     }
 
     daily = (
@@ -376,6 +403,7 @@ def create_booking():
     booking_count = Booking.query.count() + 1
     booking = Booking(
         booking_code=payload.get("booking_code") or f"MTT-{datetime.utcnow().strftime('%Y%m%d')}-{booking_count:04d}",
+        invoice_number=payload.get("invoice_number") or next_invoice_number(),
         customer_id=int(payload["customer_id"]),
         pickup_location=payload["pickup_location"],
         drop_location=payload["drop_location"],
@@ -383,10 +411,15 @@ def create_booking():
         trip_time=parse_time(payload["trip_time"]),
         vehicle_type=payload["vehicle_type"],
         status=payload.get("status", "Pending"),
+        payment_status=payload.get("payment_status", "Pending"),
+        follow_up_date=parse_date(payload["follow_up_date"]) if payload.get("follow_up_date") else None,
+        follow_up_note=payload.get("follow_up_note"),
+        follow_up_status=payload.get("follow_up_status", "Pending"),
     )
     if booking.status not in BOOKING_STATUSES:
         return fail("Invalid booking status")
     db.session.add(booking)
+    log_action("Booking Created", booking=booking, detail="Booking record created")
     db.session.commit()
     return ok({"booking": booking.to_dict()}, 201)
 
@@ -417,6 +450,8 @@ def booking_detail(booking_id):
     payload = request.get_json() or {}
 
     status = payload.get("status", booking.status)
+    old_payment_status = booking.payment_status
+    old_status = booking.status
 
     if status not in BOOKING_STATUSES:
         return fail("Invalid booking status")
@@ -449,7 +484,18 @@ def booking_detail(booking_id):
         booking.vehicle_type
     )
     booking.status = status
+    booking.payment_status = payload.get("payment_status", booking.payment_status)
+    booking.follow_up_date = parse_date(payload["follow_up_date"]) if payload.get("follow_up_date") else booking.follow_up_date
+    booking.follow_up_note = payload.get("follow_up_note", booking.follow_up_note)
+    booking.follow_up_status = payload.get("follow_up_status", booking.follow_up_status)
+    if payload.get("invoice_number"):
+        booking.invoice_number = payload.get("invoice_number")
 
+    log_action("Booking Updated", booking=booking, detail="Booking record updated")
+    if old_payment_status != booking.payment_status:
+        log_action("Payment Updated", booking=booking, detail=f"Payment changed to {booking.payment_status}")
+    if old_status != booking.status:
+        log_action("Status Changed", booking=booking, detail=f"Status changed to {booking.status}")
     db.session.commit()
 
     return ok({"booking": booking.to_dict()})
@@ -488,12 +534,15 @@ def create_assignment():
         vehicle=vehicle,
         assigned_by=current_user_id(),
         notes=payload.get("notes"),
+        route_notes=payload.get("route_notes"),
     )
     booking.status = "Driver Assigned"
     driver.availability_status = "Assigned"
     vehicle.status = "Assigned"
     db.session.add(assignment)
     db.session.add(TripHistory(booking=booking, status="Driver Assigned", remarks="Driver and vehicle assigned", changed_by=current_user_id()))
+    log_action("Driver Assigned", booking=booking, assignment=assignment, detail=driver.name)
+    log_action("Vehicle Assigned", booking=booking, assignment=assignment, detail=vehicle.vehicle_number)
     db.session.commit()
     return ok({"assignment": assignment.to_dict()}, 201)
 
@@ -527,11 +576,17 @@ def reassign(assignment_id):
         vehicle=vehicle,
         assigned_by=current_user_id(),
         notes=payload.get("notes", "Reassignment"),
+        route_notes=payload.get("route_notes", assignment.route_notes),
     )
     driver.availability_status = "Assigned"
     vehicle.status = "Assigned"
     db.session.add(new_assignment)
     db.session.add(TripHistory(booking=assignment.booking, status="Driver Assigned", remarks="Assignment updated", changed_by=current_user_id()))
+    if old_driver.id != driver.id:
+        log_action("Driver Assigned", booking=assignment.booking, assignment=new_assignment, detail=f"Reassigned to {driver.name}")
+    if old_vehicle.id != vehicle.id:
+        log_action("Vehicle Assigned", booking=assignment.booking, assignment=new_assignment, detail=f"Reassigned to {vehicle.vehicle_number}")
+    log_action("Status Changed", booking=assignment.booking, assignment=new_assignment, detail="Assignment updated")
     db.session.commit()
     return ok({"assignment": new_assignment.to_dict()})
 
@@ -553,6 +608,12 @@ def update_trip_status(booking_id):
         return fail("Invalid booking status")
     booking.status = status
     db.session.add(TripHistory(booking=booking, status=status, remarks=payload.get("remarks"), changed_by=current_user_id()))
+    if status == "Trip Started":
+        log_action("Trip Started", booking=booking, detail=payload.get("remarks"))
+    elif status == "Completed":
+        log_action("Trip Completed", booking=booking, detail=payload.get("remarks"))
+    else:
+        log_action("Status Changed", booking=booking, detail=f"Trip status changed to {status}")
     if status == "Completed":
         active_assignment = Assignment.query.filter_by(booking_id=booking.id, is_active=True).first()
         if active_assignment:
@@ -560,6 +621,53 @@ def update_trip_status(booking_id):
             active_assignment.vehicle.status = "Available"
     db.session.commit()
     return ok({"booking": booking.to_dict()})
+
+
+@api_bp.get("/coordinator")
+@login_required
+def coordinator():
+    now = datetime.now()
+    hours = int(request.args.get("hours", 24))
+    window_end = now + timedelta(hours=hours)
+    today = date.today()
+
+    all_bookings = Booking.query.order_by(Booking.trip_date, Booking.trip_time).all()
+    unassigned = [booking for booking in all_bookings if not any(item.is_active for item in booking.assignments) and booking.status != "Completed"]
+    upcoming = [
+        booking
+        for booking in all_bookings
+        if now <= datetime.combine(booking.trip_date, booking.trip_time) <= window_end and booking.status != "Completed"
+    ]
+    pending_payments = Booking.query.filter(Booking.payment_status != "Paid").order_by(Booking.trip_date, Booking.trip_time).all()
+    follow_ups = Booking.query.filter(
+        Booking.follow_up_date.isnot(None),
+        Booking.follow_up_date < today,
+        Booking.follow_up_status == "Pending",
+    ).order_by(Booking.follow_up_date).all()
+    drivers_on_leave = Driver.query.filter_by(availability_status="Unavailable").all()
+    vehicles_unavailable = Vehicle.query.filter(Vehicle.status == "Maintenance").all()
+    recent_activity = ActivityLog.query.order_by(ActivityLog.created_at.desc()).limit(12).all()
+
+    return ok(
+        {
+            "window_hours": hours,
+            "counters": {
+                "unassigned_bookings": len(unassigned),
+                "drivers_on_leave": len(drivers_on_leave),
+                "vehicles_unavailable": len(vehicles_unavailable),
+                "upcoming_trips": len(upcoming),
+                "pending_payments": len(pending_payments),
+                "overdue_follow_ups": len(follow_ups),
+            },
+            "unassigned_bookings": [item.to_dict() for item in unassigned],
+            "drivers_on_leave": [item.to_dict() for item in drivers_on_leave],
+            "vehicles_unavailable": [item.to_dict() for item in vehicles_unavailable],
+            "upcoming_trips": [item.to_dict() for item in upcoming],
+            "pending_payments": [item.to_dict() for item in pending_payments],
+            "overdue_follow_ups": [item.to_dict() for item in follow_ups],
+            "recent_activity": [item.to_dict() for item in recent_activity],
+        }
+    )
 
 
 @api_bp.get("/reports")
@@ -592,6 +700,8 @@ def reports():
             "assignments": [item.to_dict() for item in assignments],
             "driver_utilization": [{"label": item[0], "value": item[1]} for item in driver_utilization],
             "vehicle_utilization": [{"label": item[0], "value": item[1]} for item in vehicle_utilization],
+            "payment_summary": [{"label": item[0], "value": item[1]} for item in db.session.query(Booking.payment_status, func.count(Booking.id)).group_by(Booking.payment_status).all()],
+            "assignment_summary": [{"label": item[0], "value": item[1]} for item in db.session.query(Booking.status, func.count(Booking.id)).group_by(Booking.status).all()],
         }
     )
 @api_bp.get("/reports/export/excel")
@@ -603,10 +713,12 @@ def export_excel():
 
     ws.append([
         "Booking ID",
+        "Invoice Number",
         "Customer",
         "Driver",
         "Vehicle",
         "Trip Date",
+        "Payment",
         "Status"
     ])
 
@@ -617,10 +729,12 @@ def export_excel():
 
         ws.append([
             booking.booking_code,
+            booking.invoice_number,
             booking.customer.name if booking.customer else "",
             assignment.driver.name if assignment.driver else "",
             assignment.vehicle.name if assignment.vehicle else "",
             booking.trip_date.strftime("%Y-%m-%d"),
+            booking.payment_status,
             booking.status
         ])
 
@@ -646,10 +760,12 @@ def export_pdf():
 
     data = [[
         "Booking ID",
+        "Invoice Number",
         "Customer",
         "Driver",
         "Vehicle",
         "Trip Date",
+        "Payment",
         "Status"
     ]]
 
@@ -661,10 +777,12 @@ def export_pdf():
 
         data.append([
             booking.booking_code,
+            booking.invoice_number,
             booking.customer.name if booking.customer else "",
             assignment.driver.name if assignment.driver else "",
             assignment.vehicle.name if assignment.vehicle else "",
             booking.trip_date.strftime("%Y-%m-%d"),
+            booking.payment_status,
             booking.status
         ])
 

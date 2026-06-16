@@ -1,6 +1,6 @@
 from app import create_app
 from app.extensions import db
-from app.models import Assignment, Booking, Customer, Driver, TripHistory, User, Vehicle
+from app.models import ActivityLog, Assignment, Booking, Customer, Driver, TripHistory, User, Vehicle
 from app.utils import parse_date, parse_time
 
 
@@ -37,6 +37,7 @@ def seed():
         bookings = [
             Booking(
                 booking_code="MTT-20260611-0001",
+                invoice_number="INV001",
                 customer=customers[0],
                 pickup_location="Chennai Central",
                 drop_location="Mahabalipuram",
@@ -44,9 +45,13 @@ def seed():
                 trip_time=parse_time("09:30"),
                 vehicle_type="SUV",
                 status="Driver Assigned",
+                payment_status="Partial",
+                follow_up_date=parse_date("2026-06-15"),
+                follow_up_note="Confirm return pickup preference",
             ),
             Booking(
                 booking_code="MTT-20260612-0002",
+                invoice_number="INV002",
                 customer=customers[1],
                 pickup_location="Bengaluru Airport",
                 drop_location="Mysuru",
@@ -54,9 +59,13 @@ def seed():
                 trip_time=parse_time("07:00"),
                 vehicle_type="MUV",
                 status="Confirmed",
+                payment_status="Pending",
+                follow_up_date=parse_date("2026-06-14"),
+                follow_up_note="Collect advance payment confirmation",
             ),
             Booking(
                 booking_code="MTT-20260613-0003",
+                invoice_number="INV003",
                 customer=customers[2],
                 pickup_location="Hyderabad Station",
                 drop_location="Ramoji Film City",
@@ -64,14 +73,16 @@ def seed():
                 trip_time=parse_time("10:15"),
                 vehicle_type="Traveller",
                 status="Pending",
+                payment_status="Pending",
             ),
         ]
         db.session.add_all(bookings)
         db.session.flush()
 
-        assignment = Assignment(booking=bookings[0], driver=drivers[0], vehicle=vehicles[0], admin=admin, notes="Primary assignment")
+        assignment = Assignment(booking=bookings[0], driver=drivers[0], vehicle=vehicles[0], admin=admin, notes="Primary assignment", route_notes="Use ECR route after toll plaza")
         db.session.add(assignment)
         db.session.add(TripHistory(booking=bookings[0], status="Driver Assigned", remarks="Initial assignment completed", admin=admin))
+        db.session.add(ActivityLog(action="Driver Assigned", booking=bookings[0], assignment=assignment, detail="Initial assignment completed", admin=admin))
         db.session.commit()
         print("Sample data created. Login: admin@manivthatours.com / Admin@123")
 

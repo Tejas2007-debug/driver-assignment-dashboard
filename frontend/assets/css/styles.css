@@ -413,7 +413,6 @@ a { text-decoration: none; }
 .metric-card {
     position: relative;
     min-height: 160px;
-    height: 160px;
     padding: 20px 24px;
     gap: 20px;
 
@@ -427,8 +426,8 @@ a { text-decoration: none; }
 .metric-content {
     display: flex;
     flex-direction: column;
-    flex: 1;
-    min-width: 0;
+    height: 100%;
+    padding-right: 80px;
 }
 
 .metric-content > span:first-child {
@@ -441,14 +440,13 @@ a { text-decoration: none; }
 
 .metric-card strong {
     margin-top: 14px;
-    font-size: 2.1rem;
+    font-size: 2rem;
     font-weight: 800;
     color: #0f172a;
     max-width: 100%;
-    overflow: visible;
-    text-overflow: clip;
+    overflow-wrap: anywhere;
     white-space: normal;
-    line-height: 1.05;
+    line-height: 1.15;
 }
 
 .metric-card small {
@@ -458,40 +456,42 @@ a { text-decoration: none; }
     font-weight: 700;
 
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 6px;
+
     max-width: 100%;
     min-width: 0;
-    overflow: visible;
-    text-overflow: clip;
+
     white-space: normal;
-    align-items: flex-start;
+    overflow-wrap: anywhere;
+    line-height: 1.4;
 }
 
 .metric-icon {
-    width: 48px;
-    height: 48px;
+    position: absolute;
+    top: 18px;
+    right: 18px;
+
+    width: 52px;
+    height: 52px;
 
     display: flex;
     align-items: center;
     justify-content: center;
 
-    border-radius: 16px;
-    color: #fff;
+    flex-shrink: 0;
 
+    border-radius: 16px;
     background: linear-gradient(
         135deg,
         #3b82f6,
         #7c3aed
     );
 
-    box-shadow: 0 12px 25px rgba(59,130,246,.25);
-
-    flex-shrink: 0;
-    margin-left: 24px;   /* was 16px */
-    margin-top: 8px;     /* add this */
-
+    color: white;
     font-size: 18px;
+
+    box-shadow: 0 10px 25px rgba(59,130,246,.25);
 }
 
 .metric-card::before {

@@ -396,106 +396,6 @@ async function renderDashboard() {
   `;
   chart("dailyChart", "bar", data.daily_bookings, "#2563eb");
 
-async function api(path, options = {}) {
-  showLoader(true);
-  try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      method: options.method || "GET",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || "Request failed");
-    return data;
-  } finally {
-    showLoader(false);
-  }
-}
-
-function showLoader(show) {
-  loader?.classList.toggle("d-none", !show);
-}
-
-function toast(message, type = "success") {
-  if (!$("#toastHost")) {
-    alert(message);
-    return;
-  }
-  const id = `toast-${Date.now()}`;
-  $("#toastHost").insertAdjacentHTML(
-    "beforeend",
-    `<div id="${id}" class="toast align-items-center text-bg-${type} border-0" role="alert">
-      <div class="d-flex"><div class="toast-body">${escapeHtml(message)}</div>
-      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>
-    </div>`
-  );
-  const node = document.getElementById(id);
-  bootstrap.Toast.getOrCreateInstance(node, { delay: 2600 }).show();
-  node.addEventListener("hidden.bs.toast", () => node.remove());
-}
-
-async function loadCoreData() {
-  const [customers, bookings, drivers, vehicles, assignments] = await Promise.all([
-    api("/customers"),
-    api("/bookings"),
-    api("/drivers"),
-    api("/vehicles"),
-    api("/assignments"),
-  ]);
-  state.data.customers = customers.customers;
-  state.data.bookings = bookings.bookings;
-  state.data.drivers = drivers.drivers;
-  state.data.vehicles = vehicles.vehicles;
-  state.data.assignments = assignments.assignments;
-}
-
-async function loadActivity(limit = 12) {
-  try {
-    const res = await api(`/activity?limit=${limit}`);
-    state.data.activity = res.activity || [];
-  } catch {
-    state.data.activity = [];
-  }
-}
-
-async function renderDashboard() {
-  const [data] = await Promise.all([api("/dashboard"), loadCoreData()]);
-  const timing = tripTimingSummary(state.data.bookings);
-  content.innerHTML = `
-    <div class="row g-3 mb-3">
-      ${metric("Total Bookings", data.cards.total_bookings, "fa-calendar-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
-      ${metric("Active Trips", data.cards.active_trips, "fa-route", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
-      ${metric("Completed Trips", data.cards.completed_trips, "fa-circle-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
-      ${metric("Upcoming Trips", timing.upcoming, "fa-clock", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
-      ${metric("Recent Assignments", (data.recent_assignments || []).length, "fa-clipboard-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
-      ${metric("Next Pickup", timing.nextPickup, "fa-location-dot", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
-    </div>
-    <div class="row g-3 mb-3">
-      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
-      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Weekly Bookings</h3></div><div class="chart-container"><canvas id="weeklyChart"></canvas></div></div></div>
-      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Trip Status Overview</h3></div><div class="chart-container"><canvas id="statusChart"></canvas></div></div></div>
-    </div>
-    <div class="row g-3 mb-3">
-      <div class="col-lg-4">
-        <div class="card-lite panel fill-panel next-pickup-panel">
-          <div class="panel-title"><h3>Next Scheduled Pickup</h3></div>
-          ${nextPickupPanel(timing)}
-        </div>
-      </div>
-      <div class="col-lg-8">
-        ${tablePanel(
-          "Upcoming Trips",
-          upcomingTripRows(data.upcoming_trips),
-          "compact-table responsive-card-table dashboard-upcoming-table"
-       )}
-    </div>
-    </div>
-    <div class="row g-3">
-      <div class="col-12">${tablePanel("Recent Assignments", dashboardAssignmentRows(data.recent_assignments), "compact-table responsive-card-table dashboard-table")}</div>
-    </div>
-  `;
-  chart("dailyChart", "bar", data.daily_bookings, "#2563eb");
   chart("weeklyChart", "line", data.weekly_bookings, "#14b8a6");
   chart("statusChart", "doughnut", data.trip_status_overview, ["#f59e0b", "#2563eb", "#14b8a6", "#22c55e", "#64748b"]);
   applyResponsiveTableLabels();
@@ -775,8 +675,8 @@ async function saveModalForm(event) {
     const response = await api(item ? `${config.endpoint}/${item.id}` : config.endpoint, { method: item ? "PUT" : "POST", body });
     if (type === "bookings") {
       saveBookingPaymentStatus(item?.id || response.booking?.id, localPaymentStatus);
-      recordBookingAction(item ? "Booking Updated" : "Booking Created", response.booking, item ? "Booking record updated" : "Booking record created");
-      if (item && bookingPaymentStatus(item) !== localPaymentStatus) recordBookingAction("Payment Updated", response.booking, `Payment changed to ${localPaymentStatus}`);
+      recordAssignmentAction(item ? "Booking Updated" : "Booking Created", response.booking, item ? "Booking record updated" : "Booking record created");
+      if (item && bookingPaymentStatus(item) !== localPaymentStatus) recordAssignmentAction("Payment Updated", response.booking, `Payment changed to ${localPaymentStatus}`);
     }
     if (type === "drivers") {
       saveDriverStatusOverride(item?.id || response.driver?.id, localDriverStatus);
@@ -1525,13 +1425,8 @@ function normalizeCoordinatorData(data = {}) {
   };
 }
 
-function recordBookingAction(action, booking, detail = "") {
-  recordAssignmentAction(action, booking, detail);
-}
-
-function recentActionHistory(limit = 12) {
-  return storageArray(STORAGE_KEYS.actionHistory).slice(0, limit);
-}
+function actionHistoryList(limit = 12) {
+  const history = storageArray(STORAGE_KEYS.actionHistory).slice(0, limit);
   if (!history.length) return `<div class="text-center text-secondary py-4">No action history recorded yet</div>`;
   return `<div class="timeline-list compact-history">${history.map((item) => `
     <div class="timeline-item">

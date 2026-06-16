@@ -412,7 +412,7 @@ a { text-decoration: none; }
 
 .metric-card {
     position: relative;
-    min-height: 160px;
+    min-height: 130px;
     padding: 20px 24px;
     gap: 20px;
 
@@ -427,7 +427,7 @@ a { text-decoration: none; }
     display: flex;
     flex-direction: column;
     height: 100%;
-    padding-right: 80px;
+    padding-right: 60px;
 }
 
 .metric-content > span:first-child {
@@ -443,9 +443,7 @@ a { text-decoration: none; }
     font-size: 2rem;
     font-weight: 800;
     color: #0f172a;
-    max-width: 100%;
-    overflow-wrap: anywhere;
-    white-space: normal;
+    white-space: nowrap;
     line-height: 1.15;
 }
 
@@ -456,14 +454,10 @@ a { text-decoration: none; }
     font-weight: 700;
 
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 6px;
 
-    max-width: 100%;
-    min-width: 0;
-
-    white-space: normal;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
     line-height: 1.4;
 }
 

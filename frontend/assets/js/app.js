@@ -362,7 +362,7 @@ async function renderDashboard() {
   const [data] = await Promise.all([api("/dashboard"), loadCoreData()]);
   const timing = tripTimingSummary(state.data.bookings);
   content.innerHTML = `
-    <div class="row g-3 mb-3">
+    <div class="row g-3 mb-4">
       ${metric("Total Bookings", data.cards.total_bookings, "fa-calendar-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
       ${metric("Active Trips", data.cards.active_trips, "fa-route", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
       ${metric("Completed Trips", data.cards.completed_trips, "fa-circle-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
@@ -370,32 +370,39 @@ async function renderDashboard() {
       ${metric("Recent Assignments", (data.recent_assignments || []).length, "fa-clipboard-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
       ${metric("Next Pickup", timing.nextPickup, "fa-location-dot", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
     </div>
-    <div class="row g-3 mb-3">
-      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
-      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Weekly Bookings</h3></div><div class="chart-container"><canvas id="weeklyChart"></canvas></div></div></div>
-      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Trip Status Overview</h3></div><div class="chart-container"><canvas id="statusChart"></canvas></div></div></div>
-    </div>
-    <div class="row g-3 mb-3">
-      <div class="col-lg-4">
+
+    <div class="row g-3 mb-4">
+      <div class="col-12">
         <div class="card-lite panel fill-panel next-pickup-panel">
           <div class="panel-title"><h3>Next Scheduled Pickup</h3></div>
           ${nextPickupPanel(timing)}
         </div>
       </div>
-      <div class="col-lg-8">
+    </div>
+
+    <div class="row g-3 mb-4">
+      <div class="col-12">
         ${tablePanel(
           "Upcoming Trips",
           upcomingTripRows(data.upcoming_trips),
           "compact-table responsive-card-table dashboard-upcoming-table"
        )}
+      </div>
     </div>
+
+    <div class="row g-3 mb-4">
+      <div class="col-12">
+        ${tablePanel("Recent Assignments", dashboardAssignmentRows(data.recent_assignments), "compact-table responsive-card-table dashboard-table")}
+      </div>
     </div>
+
     <div class="row g-3">
-      <div class="col-12">${tablePanel("Recent Assignments", dashboardAssignmentRows(data.recent_assignments), "compact-table responsive-card-table dashboard-table")}</div>
+      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
+      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Weekly Bookings</h3></div><div class="chart-container"><canvas id="weeklyChart"></canvas></div></div></div>
+      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Trip Status Overview</h3></div><div class="chart-container"><canvas id="statusChart"></canvas></div></div></div>
     </div>
   `;
   chart("dailyChart", "bar", data.daily_bookings, "#2563eb");
-
   chart("weeklyChart", "line", data.weekly_bookings, "#14b8a6");
   chart("statusChart", "doughnut", data.trip_status_overview, ["#f59e0b", "#2563eb", "#14b8a6", "#22c55e", "#64748b"]);
   applyResponsiveTableLabels();
@@ -1423,6 +1430,18 @@ function normalizeCoordinatorData(data = {}) {
     overdue_follow_ups: overdueFollowUps,
     recent_activity: recentActivity,
   };
+}
+
+function activityList(rows) {
+  if (!rows || !rows.length) return `<div class="text-center text-secondary py-4">No recent activity</div>`;
+  return `<div class="timeline-list compact-history">${rows.map((item) => `
+    <div class="timeline-item">
+      <div class="timeline-dot"></div>
+      <div class="timeline-card">
+        <div class="timeline-head"><strong>${escapeHtml(item.action)}</strong><small>${formatDateTime(item.created_at)}</small></div>
+        <div class="timeline-grid"><span>${escapeHtml(item.booking_code || "-")}</span><span>${escapeHtml(item.driver_name || "-")}</span><span>${escapeHtml(item.vehicle_name || "-")}</span><span>${escapeHtml(item.detail || "")}</span></div>
+      </div>
+    </div>`).join("")}</div>`;
 }
 
 function actionHistoryList(limit = 12) {

@@ -358,14 +358,6 @@ async function renderDashboard() {
       ${metric("Available Vehicles", data.cards.available_vehicles, "fa-car-side", "", "col-6 col-md-4 col-xl-2")}
     </div>
     <div class="row g-3 mb-3">
-      ${metric("Ongoing Trips", timing.ongoing, "fa-route", "Assigned or started")}
-      ${metric("Completed Today", timing.completedToday, "fa-calendar-check", "Closed today")}
-      ${metric("Scheduled Pickups", timing.upcoming, "fa-calendar-plus", "Future open trips")}
-      ${metric("Pending Payments", data.cards.pending_payments, "fa-file-invoice-dollar", "Invoices needing follow-up")}
-      ${metric("Unassigned", data.cards.unassigned_bookings, "fa-calendar-xmark", "Bookings awaiting assignment")}
-      ${metric("Drivers On Leave", data.cards.drivers_on_leave, "fa-user-clock", "Unavailable drivers")}
-    </div>
-    <div class="row g-3 mb-3">
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Weekly Bookings</h3></div><div class="chart-container"><canvas id="weeklyChart"></canvas></div></div></div>
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Trip Status Overview</h3></div><div class="chart-container"><canvas id="statusChart"></canvas></div></div></div>
@@ -492,8 +484,17 @@ const configs = {
       ["follow_up_status", "Follow-Up Status", "select", FOLLOW_UP_STATUSES],
       ["follow_up_note", "Follow-Up Note", "textarea", { required: false }],
     ],
-    headers: ["Booking ID", "Invoice", "Customer", "Pickup", "Drop", "Date", "Time", "Vehicle Type", "Status", "Payment", "Actions"],
-    row: (x) => [`<strong class="booking-id">${x.booking_code}</strong>`, `<strong class="booking-id">${x.invoice_number || "-"}</strong>`, profileCell(x.customer_name, x.vehicle_type, "customer"), x.pickup_location, x.drop_location, x.trip_date, x.trip_time, x.vehicle_type, badge(x.status), badge(bookingPaymentStatus(x))],
+    headers: ["Booking", "Invoice", "Customer", "Route", "Schedule", "Vehicle Type", "Status", "Payment", "Actions"],
+    row: (x) => [
+      `<strong class="booking-id">${escapeHtml(x.booking_code)}</strong>`,
+      `<strong class="booking-id">${escapeHtml(x.invoice_number || "-")}</strong>`,
+      profileCell(x.customer_name, x.vehicle_type, "customer"),
+      routeCell(x.pickup_location, x.drop_location),
+      scheduleCell(x.trip_date, x.trip_time),
+      x.vehicle_type,
+      badge(x.status),
+      badge(bookingPaymentStatus(x)),
+    ],
     details: true,
   },
 };
@@ -852,8 +853,8 @@ async function renderTrips() {
   content.innerHTML = `<div class="card-lite panel">
     <div class="table-responsive responsive-card-table">
       <table class="table table-hover align-middle">
-        <thead><tr><th>Booking ID</th><th>Customer</th><th>Assignment</th><th>Pickup</th><th>Drop</th><th>Route Notes</th><th>Date</th><th>Time</th><th>Status</th><th>Update</th><th>Payment</th><th>Action</th></tr></thead>
-        <tbody>${state.data.trips.map(tripRow).join("") || emptyRow(12)}</tbody>
+        <thead><tr><th>Booking</th><th>Customer</th><th>Assignment</th><th>Route</th><th>Schedule</th><th>Status</th><th>Update</th><th>Payment</th><th>Action</th></tr></thead>
+        <tbody>${state.data.trips.map(tripRow).join("") || emptyRow(9)}</tbody>
       </table>
     </div>
   </div>`;
@@ -867,29 +868,29 @@ function tripRow(item) {
   const options = tripStatusOptions(item.status);
   return `
   <tr>
-    <td class="text-nowrap">
-      <strong>${item.booking_code}</strong>
+    <td>
+      <strong class="booking-id">${escapeHtml(item.booking_code)}</strong>
     </td>
-    <td class="text-nowrap">${item.customer_name}</td>
-    <td class="text-nowrap">
-      ${item.assignment ? `<strong>${item.assignment.driver_name}</strong><br><small>${item.assignment.vehicle_name}</small>` : `<span class="text-muted fw-semibold">Not Assigned</span>`}
+    <td>${escapeHtml(item.customer_name || "-")}</td>
+    <td>
+      <div class="assignment-cell">
+        ${item.assignment ? `<strong>${escapeHtml(item.assignment.driver_name)}</strong><small>${escapeHtml(item.assignment.vehicle_name)}</small>` : `<span class="text-muted fw-semibold">Not Assigned</span>`}
+        ${item.assignment?.route_notes ? `<small>${escapeHtml(item.assignment.route_notes)}</small>` : ""}
+      </div>
     </td>
-    <td>${item.pickup_location}</td>
-    <td>${item.drop_location}</td>
-    <td>${escapeHtml(item.assignment?.route_notes || "-")}</td>
-    <td class="text-nowrap">${item.trip_date}</td>
-    <td class="text-nowrap">${item.trip_time}</td>
-    <td style="min-width: 130px;">
+    <td>${routeCell(item.pickup_location, item.drop_location)}</td>
+    <td>${scheduleCell(item.trip_date, item.trip_time)}</td>
+    <td class="status-cell">
       <div class="mb-1">${statusProgress(item.status)}</div>
       ${badge(item.status)}
     </td>
-    <td style="min-width: 160px;">
-      <select class="form-select form-select-sm" data-trip-status="${item.id}">
+    <td>
+      <select class="form-select form-select-sm trip-status-select" data-trip-status="${item.id}">
         ${options.map((s) => `<option ${s === item.status ? "selected" : ""}>${s}</option>`).join("")}
       </select>
     </td>
-    <td style="min-width: 150px;">${paymentControl(item)}</td>
-    <td><button class="btn btn-outline-secondary btn-sm" data-trip-detail="${item.id}" title="View Details"><i class="fa-regular fa-eye"></i></button></td>
+    <td>${paymentControl(item)}</td>
+    <td><div class="actions"><button class="btn btn-outline-secondary btn-sm" data-trip-detail="${item.id}" title="View Details"><i class="fa-regular fa-eye"></i></button></div></td>
   </tr>`;
 }
 
@@ -1039,6 +1040,18 @@ ${assignmentActionButtons(item)}
   </tr>`).join("") || emptyRow(actions ? 9 : 8)}</tbody>`;
 }
 
+function routeCell(pickup, drop) {
+  return `<div class="route-cell">
+    <span>${escapeHtml(pickup || "-")}</span>
+    <i class="fa-solid fa-arrow-right"></i>
+    <span>${escapeHtml(drop || "-")}</span>
+  </div>`;
+}
+
+function scheduleCell(date, time) {
+  return `<div class="schedule-cell"><strong>${escapeHtml(date || "-")}</strong><small>${escapeHtml(time || "-")}</small></div>`;
+}
+
 function assignmentTimeline(rows, actions = false) {
   return `<div class="timeline-list">${rows.map((item) => `<div class="timeline-item">
     <div class="timeline-dot"></div>
@@ -1077,22 +1090,6 @@ function assignmentActionButtons(item) {
     ? `<button class="btn btn-outline-danger btn-sm" data-delete-assignment="${item.id}" title="Delete completed assignment"><i class="fa-solid fa-trash"></i></button>`
     : "";
   return `${reassign}${deleteButton}`;
-}
-
-function bookingRows(rows) {
-  return `<thead><tr><th>Booking</th><th>Customer</th><th>Route</th><th>Date</th><th>Status</th></tr></thead>
-  <tbody>${rows.map((item) => `<tr><td><strong class="booking-id">${escapeHtml(item.booking_code)}</strong></td><td>${escapeHtml(item.customer_name || "-")}</td><td>
-    <div class="route-cell">
-        <span>${escapeHtml(item.pickup_location || "-")}</span>
-        <i class="fa-solid fa-arrow-right mx-2"></i>
-        <span>${escapeHtml(item.drop_location || "-")}</span>
-    </div>
-</td><td>${escapeHtml(item.trip_date || "-")} ${escapeHtml(item.trip_time || "")}</td><td>
-    ${statusProgress(item.status)}
-    <div class="mt-2">
-        ${badge(item.status)}
-    </div>
-</td></tr>`).join("") || emptyRow(6)}</tbody>`;
 }
 
 function modalItem(type, item) {
@@ -1181,19 +1178,12 @@ function tripDateTime(booking) {
   return new Date(`${booking.trip_date}T${booking.trip_time || "00:00"}`);
 }
 
-function sameDay(dateA, dateB) {
-  return dateA.getFullYear() === dateB.getFullYear() && dateA.getMonth() === dateB.getMonth() && dateA.getDate() === dateB.getDate();
-}
-
 function tripTimingSummary(bookings) {
   const now = new Date();
-  const today = new Date();
   const upcomingTrips = bookings.filter((booking) => tripDateTime(booking) > now && booking.status !== "Completed");
   const next = upcomingTrips.sort((a, b) => tripDateTime(a) - tripDateTime(b))[0];
   return {
     upcoming: upcomingTrips.length,
-    ongoing: bookings.filter((booking) => ["Driver Assigned", "Trip Started"].includes(booking.status)).length,
-    completedToday: bookings.filter((booking) => booking.status === "Completed" && sameDay(tripDateTime(booking), today)).length,
     nextPickup: next ? next.trip_time : "-",
     nextPickupDetail: next ? `${next.booking_code} - ${next.customer_name || "Customer"} on ${next.trip_date}` : "No upcoming pickup",
   };
@@ -1217,23 +1207,6 @@ function upcomingTripRows(rows) {
     <td>${escapeHtml(item.trip_time || "-")}</td>
     <td>${badge(item.status)}</td>
   </tr>`).join("") || emptyRow(7)}</tbody>`;
-}
-
-function activeTripTimingCards(bookings) {
-  const active = bookings.filter((booking) => ["Driver Assigned", "Trip Started"].includes(booking.status)).slice(0, 8);
-  if (!active.length) return `<div class="text-center text-secondary py-4">No active trip timing cards</div>`;
-  return `<div class="trip-card-grid">${active.map((booking) => `
-    <div class="trip-timing-card">
-      <div class="timeline-head"><strong class="booking-id">${escapeHtml(booking.booking_code)}</strong>${badge(booking.status)}</div>
-      <div class="timeline-grid">
-        <span><i class="fa-solid fa-id-card"></i>${escapeHtml(booking.assignment?.driver_name || "Not assigned")}</span>
-        <span><i class="fa-solid fa-car-side"></i>${escapeHtml(booking.assignment?.vehicle_name || "Not assigned")}</span>
-        <span><i class="fa-solid fa-location-dot"></i>${escapeHtml(booking.pickup_location)}</span>
-        <span><i class="fa-solid fa-flag-checkered"></i>${escapeHtml(booking.drop_location)}</span>
-        <span><i class="fa-regular fa-calendar"></i>${escapeHtml(booking.trip_date)}</span>
-        <span><i class="fa-regular fa-clock"></i>${escapeHtml(booking.trip_time)}</span>
-      </div>
-    </div>`).join("")}</div>`;
 }
 
 function coordinatorAlerts() {
@@ -1285,24 +1258,6 @@ function coordinatorAlerts() {
     }
   });
   return { summary, items: items.slice(0, 12) };
-}
-
-function alertList(alerts) {
-  if (!alerts.length) return `<div class="text-center text-secondary py-4">No coordinator alerts</div>`;
-  return `<div class="alert-list">${alerts.map((alert) => `
-    <div class="alert-item alert-${severityLevel(alert.severity)}">
-      <div class="timeline-head"><strong>${escapeHtml(alert.type)}</strong>${severityBadge(alert.severity)}</div>
-      <span>${escapeHtml(alert.message)}</span>
-      ${alert.route_notes ? `<span>Route Notes: ${escapeHtml(alert.route_notes)}</span>` : ""}
-    </div>`).join("")}</div>`;
-}
-
-function severityLevel(severity) {
-  return severity === "High" ? "danger" : severity === "Medium" ? "warning" : "low";
-}
-
-function severityBadge(severity) {
-  return `<span class="badge-soft severity-${severity}">${severity}</span>`;
 }
 
 function getCoordinatorWindowHours() {

@@ -348,7 +348,6 @@ async function loadActivity(limit = 12) {
 async function renderDashboard() {
   const [data] = await Promise.all([api("/dashboard"), loadCoreData()]);
   const timing = tripTimingSummary(state.data.bookings);
-  const alerts = coordinatorAlerts();
   content.innerHTML = `
     <div class="row g-3 mb-3">
       ${metric("Total Bookings", data.cards.total_bookings, "fa-calendar-check", "", "col-6 col-md-4 col-xl-2")}
@@ -359,12 +358,12 @@ async function renderDashboard() {
       ${metric("Available Vehicles", data.cards.available_vehicles, "fa-car-side", "", "col-6 col-md-4 col-xl-2")}
     </div>
     <div class="row g-3 mb-3">
-      ${metric("Scheduled Pickups", timing.upcoming, "fa-calendar-plus", "Future open trips")}
       ${metric("Ongoing Trips", timing.ongoing, "fa-route", "Assigned or started")}
       ${metric("Completed Today", timing.completedToday, "fa-calendar-check", "Closed today")}
-      ${metric("Next Pickup", timing.nextPickup, "fa-clock", timing.nextPickupDetail)}
-      ${metric("Pending Payments", alerts.summary.pendingPayments, "fa-file-invoice-dollar", "Invoices needing follow-up")}
-      ${metric("Unassigned", alerts.summary.unassignedBookings, "fa-calendar-xmark", "Bookings awaiting assignment")}
+      ${metric("Scheduled Pickups", timing.upcoming, "fa-calendar-plus", "Future open trips")}
+      ${metric("Pending Payments", data.cards.pending_payments, "fa-file-invoice-dollar", "Invoices needing follow-up")}
+      ${metric("Unassigned", data.cards.unassigned_bookings, "fa-calendar-xmark", "Bookings awaiting assignment")}
+      ${metric("Drivers On Leave", data.cards.drivers_on_leave, "fa-user-clock", "Unavailable drivers")}
     </div>
     <div class="row g-3 mb-3">
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
@@ -372,16 +371,22 @@ async function renderDashboard() {
       <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Trip Status Overview</h3></div><div class="chart-container"><canvas id="statusChart"></canvas></div></div></div>
     </div>
     <div class="row g-3 mb-3">
-      <div class="col-12"><div class="card-lite panel"><div class="panel-title"><h3>Active Trip Briefs</h3></div>${activeTripTimingCards(state.data.bookings)}</div></div>
+      <div class="col-lg-4">
+        <div class="card-lite panel fill-panel next-pickup-panel">
+          <div class="panel-title"><h3>Next Scheduled Pickup</h3></div>
+          ${nextPickupPanel(timing)}
+        </div>
+      </div>
+      <div class="col-lg-8">${tablePanel("Upcoming Trips", upcomingTripRows(data.upcoming_trips), "compact-table responsive-card-table")}</div>
     </div>
     <div class="row g-3">
-      <div class="col-xl-5"><div class="card-lite panel fill-panel"><div class="panel-title"><h3>Attention Queue</h3></div>${alertList(alerts.items)}</div></div>
-      <div class="col-xl-7">${tablePanel("Recent Assignments", assignmentRows(data.recent_assignments), "compact-table")}</div>
+      <div class="col-12">${tablePanel("Recent Assignments", assignmentRows(data.recent_assignments), "compact-table responsive-card-table")}</div>
     </div>
   `;
   chart("dailyChart", "bar", data.daily_bookings, "#2563eb");
   chart("weeklyChart", "line", data.weekly_bookings, "#14b8a6");
   chart("statusChart", "doughnut", data.trip_status_overview, ["#f59e0b", "#2563eb", "#14b8a6", "#22c55e", "#64748b"]);
+  applyResponsiveTableLabels();
 }
 
 function metric(label, value, icon, hint = "Live operations", colClass = "col-6 col-md-4 col-lg-2") {
@@ -507,13 +512,14 @@ async function renderCrud(type) {
         </div>
         <button class="btn btn-primary" id="addBtn"><i class="fa-solid fa-plus me-2"></i>Add ${config.title}</button>
       </div>
-      <div class="table-responsive">${crudTable(config, state.data[config.key])}</div>
+      <div class="table-responsive responsive-card-table">${crudTable(config, state.data[config.key])}</div>
     </div>
   `;
   $("#addBtn").addEventListener("click", () => openEntityModal(type));
   $("#searchInput").addEventListener("input", () => filterCrud(type));
   $("#statusFilter")?.addEventListener("change", () => filterCrud(type));
   bindRowActions(type);
+  applyResponsiveTableLabels();
 }
 
 function statusFilter(type = "bookings") {
@@ -556,6 +562,7 @@ function filterCrud(type) {
   });
   $(".table-responsive").innerHTML = crudTable(config, rows);
   bindRowActions(type);
+  applyResponsiveTableLabels();
 }
 
 function bindRowActions(type) {
@@ -843,15 +850,17 @@ async function renderTrips() {
   const res = await api("/trips");
   state.data.trips = res.trips;
   content.innerHTML = `<div class="card-lite panel">
-    <div class="table-responsive">
+    <div class="table-responsive responsive-card-table">
       <table class="table table-hover align-middle">
-        <thead><tr><th>Booking ID</th><th>Customer</th><th>Assignment</th><th>Pickup</th><th>Drop</th><th>Route Notes</th><th>Date</th><th>Time</th><th>Status</th><th>Update</th><th>Action</th></tr></thead>
-        <tbody>${state.data.trips.map(tripRow).join("") || emptyRow(11)}</tbody>
+        <thead><tr><th>Booking ID</th><th>Customer</th><th>Assignment</th><th>Pickup</th><th>Drop</th><th>Route Notes</th><th>Date</th><th>Time</th><th>Status</th><th>Update</th><th>Payment</th><th>Action</th></tr></thead>
+        <tbody>${state.data.trips.map(tripRow).join("") || emptyRow(12)}</tbody>
       </table>
     </div>
   </div>`;
   document.querySelectorAll("[data-trip-status]").forEach((select) => select.addEventListener("change", updateTripStatus));
+  document.querySelectorAll("[data-payment-status]").forEach((select) => select.addEventListener("change", updatePaymentStatus));
   document.querySelectorAll("[data-trip-detail]").forEach((button) => button.addEventListener("click", () => openTripDetailModal(Number(button.dataset.tripDetail), state.data.trips)));
+  applyResponsiveTableLabels();
 }
 
 function tripRow(item) {
@@ -879,6 +888,7 @@ function tripRow(item) {
         ${options.map((s) => `<option ${s === item.status ? "selected" : ""}>${s}</option>`).join("")}
       </select>
     </td>
+    <td style="min-width: 150px;">${paymentControl(item)}</td>
     <td><button class="btn btn-outline-secondary btn-sm" data-trip-detail="${item.id}" title="View Details"><i class="fa-regular fa-eye"></i></button></td>
   </tr>`;
 }
@@ -893,6 +903,30 @@ async function updateTripStatus(event) {
     await api(`/trips/${event.target.dataset.tripStatus}/status`, { method: "PUT", body: { status: event.target.value } });
     if (trip?.assignment) recordAssignmentAction("Status updated", trip.assignment, `${trip.booking_code} set to ${event.target.value}`);
     toast("Trip status updated");
+    await renderTrips();
+  } catch (error) {
+    toast(error.message, "danger");
+    await renderTrips();
+  }
+}
+
+function paymentControl(item) {
+  if (item.status !== "Completed") return badge(bookingPaymentStatus(item));
+  return `<select class="form-select form-select-sm payment-status-select" data-payment-status="${item.id}" title="Payment status">
+    ${PAYMENT_STATUSES.map((status) => `<option value="${status}" ${status === bookingPaymentStatus(item) ? "selected" : ""}>${status}</option>`).join("")}
+  </select>`;
+}
+
+async function updatePaymentStatus(event) {
+  const booking = state.data.trips.find((item) => String(item.id) === String(event.target.dataset.paymentStatus));
+  const paymentStatus = event.target.value;
+  try {
+    const response = await api(`/bookings/${event.target.dataset.paymentStatus}`, {
+      method: "PUT",
+      body: { payment_status: paymentStatus },
+    });
+    saveBookingPaymentStatus(booking?.id || response.booking?.id, paymentStatus);
+    toast("Payment status updated");
     await renderTrips();
   } catch (error) {
     toast(error.message, "danger");
@@ -1041,7 +1075,7 @@ function assignmentActionButtons(item) {
     : `<button class="btn btn-outline-secondary btn-sm" type="button" disabled title="Only active, non-completed assignments can be reassigned"><i class="fa-solid fa-lock me-1"></i>Reassign</button>`;
   const deleteButton = canDeleteAssignment(item)
     ? `<button class="btn btn-outline-danger btn-sm" data-delete-assignment="${item.id}" title="Delete completed assignment"><i class="fa-solid fa-trash"></i></button>`
-    : `<button class="btn btn-outline-secondary btn-sm" type="button" disabled title="Only completed assignments can be deleted"><i class="fa-solid fa-lock"></i></button>`;
+    : "";
   return `${reassign}${deleteButton}`;
 }
 
@@ -1165,6 +1199,26 @@ function tripTimingSummary(bookings) {
   };
 }
 
+function nextPickupPanel(timing) {
+  return `<div class="next-pickup-summary">
+    <span class="next-pickup-time">${escapeHtml(String(timing.nextPickup))}</span>
+    <p>${escapeHtml(timing.nextPickupDetail)}</p>
+  </div>`;
+}
+
+function upcomingTripRows(rows) {
+  return `<thead><tr><th>Booking</th><th>Customer</th><th>Pickup</th><th>Drop</th><th>Date</th><th>Time</th><th>Status</th></tr></thead>
+  <tbody>${(rows || []).map((item) => `<tr>
+    <td><strong class="booking-id">${escapeHtml(item.booking_code)}</strong></td>
+    <td>${escapeHtml(item.customer_name || "-")}</td>
+    <td>${escapeHtml(item.pickup_location || "-")}</td>
+    <td>${escapeHtml(item.drop_location || "-")}</td>
+    <td>${escapeHtml(item.trip_date || "-")}</td>
+    <td>${escapeHtml(item.trip_time || "-")}</td>
+    <td>${badge(item.status)}</td>
+  </tr>`).join("") || emptyRow(7)}</tbody>`;
+}
+
 function activeTripTimingCards(bookings) {
   const active = bookings.filter((booking) => ["Driver Assigned", "Trip Started"].includes(booking.status)).slice(0, 8);
   if (!active.length) return `<div class="text-center text-secondary py-4">No active trip timing cards</div>`;
@@ -1286,6 +1340,7 @@ async function renderCoordinator() {
       recent_activity: state.data.activity,
     };
   }
+  data = normalizeCoordinatorData(data);
   content.innerHTML = `
     <div class="toolbar">
       <div class="d-flex gap-2 flex-wrap align-items-center">
@@ -1303,16 +1358,16 @@ async function renderCoordinator() {
       ${metric("Follow-Ups", data.counters.overdue_follow_ups, "fa-phone-volume", "Overdue customer calls")}
     </div>
     <div class="row g-3 mb-3 coordinator-grid">
-      <div class="col-xl-4">${tablePanel("Unassigned Bookings", coordinatorBookingRows(data.unassigned_bookings, "assignment"), "compact-table")}</div>
-      <div class="col-xl-4">${tablePanel("Pending Payments", coordinatorBookingRows(data.pending_payments, "payment"), "compact-table")}</div>
-      <div class="col-xl-4">${tablePanel("Upcoming Trips", coordinatorBookingRows(data.upcoming_trips, "route"), "compact-table")}</div>
+      <div class="col-xl-4">${tablePanel("Unassigned Bookings", coordinatorBookingRows(data.unassigned_bookings, "assignment"), "compact-table responsive-card-table")}</div>
+      <div class="col-xl-4">${tablePanel("Pending Payments", coordinatorBookingRows(data.pending_payments, "payment"), "compact-table responsive-card-table")}</div>
+      <div class="col-xl-4">${tablePanel("Upcoming Trips", coordinatorBookingRows(data.upcoming_trips, "route"), "compact-table responsive-card-table")}</div>
     </div>
     <div class="row g-3 mb-3 coordinator-grid">
-      <div class="col-xl-6">${tablePanel("Driver Leave", driverRows(data.drivers_on_leave), "compact-table")}</div>
-      <div class="col-xl-6">${tablePanel("Vehicle Maintenance", vehicleRows(data.vehicles_unavailable), "compact-table")}</div>
+      <div class="col-xl-6">${tablePanel("Driver Leave", driverRows(data.drivers_on_leave), "compact-table responsive-card-table")}</div>
+      <div class="col-xl-6">${tablePanel("Vehicle Maintenance", vehicleRows(data.vehicles_unavailable), "compact-table responsive-card-table")}</div>
     </div>
     <div class="row g-3 coordinator-grid">
-      <div class="col-xl-6">${tablePanel("Overdue Follow-Ups", followUpRows(data.overdue_follow_ups), "compact-table")}</div>
+      <div class="col-xl-6">${tablePanel("Overdue Follow-Ups", followUpRows(data.overdue_follow_ups), "compact-table responsive-card-table")}</div>
       <div class="col-xl-6"><div class="card-lite panel fill-panel"><div class="panel-title"><h3>Recent Activity</h3></div>${activityList(data.recent_activity)}</div></div>
     </div>
   `;
@@ -1320,10 +1375,55 @@ async function renderCoordinator() {
     localStorage.setItem("mtt_coordinator_window_hours", event.target.value);
     renderCoordinator();
   });
+  applyResponsiveTableLabels();
+}
+
+function applyResponsiveTableLabels(root = content) {
+  root?.querySelectorAll(".responsive-card-table table").forEach((table) => {
+    const labels = [...table.querySelectorAll("thead th")].map((cell) => cell.textContent.trim());
+    table.querySelectorAll("tbody tr").forEach((row) => {
+      [...row.children].forEach((cell, index) => {
+        if (labels[index]) cell.dataset.label = labels[index];
+      });
+    });
+  });
 }
 
 function recordAssignmentAction(action, assignment, detail = "") {
   return { action, assignment, detail };
+}
+
+function normalizeCoordinatorData(data) {
+  const byId = (rows) => {
+    const seen = new Set();
+    return (rows || []).filter((item) => {
+      const key = item?.id ?? item?.booking_id ?? item?.booking_code;
+      if (key == null) return true;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const unassigned = byId(data.unassigned_bookings);
+  const pendingPayments = byId(data.pending_payments);
+  const upcoming = byId(data.upcoming_trips);
+  const overdueFollowUps = byId(data.overdue_follow_ups);
+  const recentActivity = byId(data.recent_activity);
+  return {
+    ...data,
+    counters: {
+      ...data.counters,
+      unassigned_bookings: unassigned.length,
+      pending_payments: pendingPayments.length,
+      upcoming_trips: upcoming.length,
+      overdue_follow_ups: overdueFollowUps.length,
+    },
+    unassigned_bookings: unassigned,
+    pending_payments: pendingPayments,
+    upcoming_trips: upcoming,
+    overdue_follow_ups: overdueFollowUps,
+    recent_activity: recentActivity,
+  };
 }
 
 function recordBookingAction(action, booking, detail = "") {

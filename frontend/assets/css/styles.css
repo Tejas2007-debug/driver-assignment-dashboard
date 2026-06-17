@@ -651,7 +651,7 @@ a { text-decoration: none; }
 
 .booking-table,
 .trip-table {
-  min-width: 100%;
+  min-width: 1200px;
   table-layout: auto;
 }
 
@@ -660,10 +660,42 @@ a { text-decoration: none; }
   white-space: nowrap;
 }
 
-.route-cell {
-  white-space: normal;
-  min-width: 200px;
+.booking-id {
+  white-space: nowrap !important;
+  word-break: keep-all !important;
 }
+
+.route-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+}
+
+.route-point {
+  white-space: normal;
+  line-height: 1.4;
+}
+
+.route-arrow {
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding-left: 4px;
+}
+
+.schedule-cell {
+  white-space: nowrap;
+}
+
+.schedule-cell strong {
+  display: block;
+}
+
+.schedule-cell small {
+  color: var(--muted);
+  display: block;
+}
+
 .trip-table td:nth-child(9) { width: 72px; }
 
 .profile-cell {

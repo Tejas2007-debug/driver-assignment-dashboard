@@ -1056,9 +1056,9 @@ function dashboardAssignmentRows(rows) {
 
 function routeCell(pickup, drop) {
   return `<div class="route-cell">
-    <span>${escapeHtml(pickup || "-")}</span>
-    <i class="fa-solid fa-arrow-right"></i>
-    <span>${escapeHtml(drop || "-")}</span>
+    <span class="route-point">${escapeHtml(pickup || "-")}</span>
+    <i class="fa-solid fa-arrow-down route-arrow"></i>
+    <span class="route-point">${escapeHtml(drop || "-")}</span>
   </div>`;
 }
 

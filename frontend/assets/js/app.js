@@ -362,15 +362,28 @@ async function renderDashboard() {
   const [data] = await Promise.all([api("/dashboard"), loadCoreData()]);
   const timing = tripTimingSummary(state.data.bookings);
   content.innerHTML = `
+    <!-- SECTION 1: Metrics (Row 1) -->
     <div class="row g-3 mb-4">
-      ${metric("Total Bookings", data.cards.total_bookings, "fa-calendar-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
-      ${metric("Active Trips", data.cards.active_trips, "fa-route", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
-      ${metric("Completed Trips", data.cards.completed_trips, "fa-circle-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
-      ${metric("Upcoming Trips", timing.upcoming, "fa-clock", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
-      ${metric("Recent Assignments", (data.recent_assignments || []).length, "fa-clipboard-check", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
-      ${metric("Next Pickup", timing.nextPickup, "fa-location-dot", "Live operations", "col-12 col-sm-6 col-lg-4 col-xl-2")}
+      ${metric("Total Bookings", data.cards.total_bookings, "fa-calendar-check", "Live operations", "col-12 col-md-6 col-lg-4")}
+      ${metric("Active Trips", data.cards.active_trips, "fa-route", "Live operations", "col-12 col-md-6 col-lg-4")}
+      ${metric("Completed Trips", data.cards.completed_trips, "fa-circle-check", "Live operations", "col-12 col-md-6 col-lg-4")}
+    </div>
+    
+    <!-- SECTION 1: Metrics (Row 2) -->
+    <div class="row g-3 mb-4">
+      ${metric("Upcoming Trips", timing.upcoming, "fa-clock", "Live operations", "col-12 col-md-6 col-lg-4")}
+      ${metric("Recent Assignments", (data.recent_assignments || []).length, "fa-clipboard-check", "Live operations", "col-12 col-md-6 col-lg-4")}
+      ${metric("Next Pickup", timing.nextPickup, "fa-location-dot", "Live operations", "col-12 col-md-6 col-lg-4")}
     </div>
 
+    <!-- SECTION 2: Charts -->
+    <div class="row g-3 mb-4">
+      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
+      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Weekly Bookings</h3></div><div class="chart-container"><canvas id="weeklyChart"></canvas></div></div></div>
+      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Trip Status Overview</h3></div><div class="chart-container"><canvas id="statusChart"></canvas></div></div></div>
+    </div>
+
+    <!-- SECTION 3: Bottom Panels -->
     <div class="row g-3 mb-4">
       <div class="col-12">
         <div class="card-lite panel fill-panel next-pickup-panel">
@@ -394,12 +407,6 @@ async function renderDashboard() {
       <div class="col-12">
         ${tablePanel("Recent Assignments", dashboardAssignmentRows(data.recent_assignments), "compact-table responsive-card-table dashboard-table")}
       </div>
-    </div>
-
-    <div class="row g-3">
-      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Daily Bookings</h3></div><div class="chart-container"><canvas id="dailyChart"></canvas></div></div></div>
-      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Weekly Bookings</h3></div><div class="chart-container"><canvas id="weeklyChart"></canvas></div></div></div>
-      <div class="col-lg-4"><div class="card-lite panel"><div class="panel-title"><h3>Trip Status Overview</h3></div><div class="chart-container"><canvas id="statusChart"></canvas></div></div></div>
     </div>
   `;
   chart("dailyChart", "bar", data.daily_bookings, "#2563eb");

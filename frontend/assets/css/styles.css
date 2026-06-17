@@ -665,22 +665,24 @@ a { text-decoration: none; }
 
 .trip-table td {
   white-space: nowrap;
-  padding: 12px 14px;
+  padding: 10px 8px;
   vertical-align: middle;
 }
 
 .trip-table td:nth-child(4) {
   white-space: normal;
-  word-break: break-word;
+  word-break: normal;
+  word-wrap: normal;
 }
 
 .trip-table th {
-  padding: 12px 14px;
+  padding: 10px 8px;
   white-space: nowrap;
 }
 
 .trip-table .route-cell {
   gap: 4px;
+  min-width: 130px;
 }
 
 .trip-table .route-arrow {

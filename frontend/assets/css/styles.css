@@ -680,9 +680,19 @@ a { text-decoration: none; }
   white-space: nowrap;
 }
 
+/* Precise Table Balancing */
+.trip-table th:nth-child(1), .trip-table td:nth-child(1) { width: 13%; }
+.trip-table th:nth-child(2), .trip-table td:nth-child(2) { width: 11%; }
+.trip-table th:nth-child(3), .trip-table td:nth-child(3) { width: 14%; }
+.trip-table th:nth-child(4), .trip-table td:nth-child(4) { width: 22%; }
+.trip-table th:nth-child(5), .trip-table td:nth-child(5) { width: 10%; }
+.trip-table th:nth-child(6), .trip-table td:nth-child(6) { width: 10%; }
+.trip-table th:nth-child(7), .trip-table td:nth-child(7) { width: 10%; }
+.trip-table th:nth-child(8), .trip-table td:nth-child(8) { width: 7%; }
+.trip-table th:nth-child(9), .trip-table td:nth-child(9) { width: 3%; }
+
 .trip-table .route-cell {
   gap: 4px;
-  min-width: 130px;
 }
 
 .trip-table .route-arrow {

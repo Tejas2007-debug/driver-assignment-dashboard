@@ -910,21 +910,22 @@ async function updateTripStatus(event) {
 }
 
 function paymentControl(item) {
-  if (item.status !== "Completed") return `<div class="payment-display">${badge(bookingPaymentStatus(item))}</div>`;
-  return `<select class="form-select form-select-sm payment-status-select" data-payment-status="${item.id}" title="Payment status">
+  const bookingId = item.booking_id || item.id;
+  return `<select class="form-select form-select-sm payment-status-select" data-payment-status="${bookingId}" title="Payment status">
     ${PAYMENT_STATUSES.map((status) => `<option value="${escapeHtml(status)}" ${status === bookingPaymentStatus(item) ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
   </select>`;
 }
 
 async function updatePaymentStatus(event) {
-  const booking = state.data.trips.find((item) => String(item.id) === String(event.target.dataset.paymentStatus));
+  const bookingId = event.target.dataset.paymentStatus;
+  const booking = state.data.trips.find((item) => String(item.booking_id || item.id) === String(bookingId));
   const paymentStatus = event.target.value;
   try {
-    const response = await api(`/bookings/${event.target.dataset.paymentStatus}`, {
+    const response = await api(`/bookings/${bookingId}`, {
       method: "PUT",
       body: { payment_status: paymentStatus },
     });
-    saveBookingPaymentStatus(booking?.id || response.booking?.id, paymentStatus);
+    saveBookingPaymentStatus(bookingId, paymentStatus);
     toast("Payment status updated");
     await renderTrips();
   } catch (error) {
@@ -1136,7 +1137,8 @@ function saveStorageObject(key, value) {
 }
 
 function bookingPaymentStatus(booking) {
-  return storageObject(STORAGE_KEYS.payment)[booking?.id] || booking?.payment_status || "Pending";
+  const bookingId = booking?.booking_id || booking?.id;
+  return storageObject(STORAGE_KEYS.payment)[bookingId] || booking?.payment_status || "Pending";
 }
 
 function saveBookingPaymentStatus(id, status) {

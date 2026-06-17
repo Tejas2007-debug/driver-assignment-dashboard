@@ -1348,25 +1348,41 @@ async function renderCoordinator() {
       </div>
     </div>
     <div class="row g-3 mb-3 coordinator-metrics">
-      ${metric("Unassigned", data.counters.unassigned_bookings, "fa-calendar-xmark", "Needs driver and vehicle")}
-      ${metric("Pending Pay", data.counters.pending_payments, "fa-file-invoice-dollar", "Payment follow-up")}
-      ${metric("Upcoming", data.counters.upcoming_trips, "fa-clock", `${hours} hour dispatch window`)}
-      ${metric("Driver Leave", data.counters.drivers_on_leave, "fa-user-clock", "Unavailable drivers")}
-      ${metric("Maintenance", data.counters.vehicles_unavailable, "fa-screwdriver-wrench", "Vehicles unavailable")}
-      ${metric("Follow-Ups", data.counters.overdue_follow_ups, "fa-phone-volume", "Overdue customer calls")}
+      ${metric("Unassigned", data.counters.unassigned_bookings, "fa-calendar-xmark", "Needs driver and vehicle", "col-12 col-md-6 col-lg-4")}
+      ${metric("Pending Pay", data.counters.pending_payments, "fa-file-invoice-dollar", "Payment follow-up", "col-12 col-md-6 col-lg-4")}
+      ${metric("Upcoming", data.counters.upcoming_trips, "fa-clock", `${hours} hour dispatch window`, "col-12 col-md-6 col-lg-4")}
+    </div>
+    <div class="row g-3 mb-3 coordinator-metrics">
+      ${metric("Driver Leave", data.counters.drivers_on_leave, "fa-user-clock", "Unavailable drivers", "col-12 col-md-6 col-lg-4")}
+      ${metric("Maintenance", data.counters.vehicles_unavailable, "fa-screwdriver-wrench", "Vehicles unavailable", "col-12 col-md-6 col-lg-4")}
+      ${metric("Follow-Ups", data.counters.overdue_follow_ups, "fa-phone-volume", "Overdue customer calls", "col-12 col-md-6 col-lg-4")}
+    </div>
+
+    <!-- SECTION 2: ALERT TABLES -->
+    <div class="row g-3 mb-3 coordinator-grid">
+      <div class="col-12">${tablePanel("Unassigned Bookings", coordinatorBookingRows(data.unassigned_bookings, "assignment"), "compact-table responsive-card-table")}</div>
     </div>
     <div class="row g-3 mb-3 coordinator-grid">
-      <div class="col-xl-4">${tablePanel("Unassigned Bookings", coordinatorBookingRows(data.unassigned_bookings, "assignment"), "compact-table responsive-card-table")}</div>
-      <div class="col-xl-4">${tablePanel("Pending Payments", coordinatorBookingRows(data.pending_payments, "payment"), "compact-table responsive-card-table")}</div>
-      <div class="col-xl-4">${tablePanel("Upcoming Trips", coordinatorBookingRows(data.upcoming_trips, "route"), "compact-table responsive-card-table")}</div>
+      <div class="col-12">${tablePanel("Pending Payments", coordinatorBookingRows(data.pending_payments, "payment"), "compact-table responsive-card-table")}</div>
     </div>
     <div class="row g-3 mb-3 coordinator-grid">
-      <div class="col-xl-6">${tablePanel("Driver Leave", driverRows(data.drivers_on_leave), "compact-table responsive-card-table")}</div>
-      <div class="col-xl-6">${tablePanel("Vehicle Maintenance", vehicleRows(data.vehicles_unavailable), "compact-table responsive-card-table")}</div>
+      <div class="col-12">${tablePanel("Upcoming Trips", coordinatorBookingRows(data.upcoming_trips, "route"), "compact-table responsive-card-table")}</div>
+    </div>
+
+    <!-- SECTION 3: DRIVER LEAVE & VEHICLE MAINTENANCE -->
+    <div class="row g-3 mb-3 coordinator-grid">
+      <div class="col-12">${tablePanel("Driver Leave", driverRows(data.drivers_on_leave), "compact-table responsive-card-table")}</div>
+    </div>
+    <div class="row g-3 mb-3 coordinator-grid">
+      <div class="col-12">${tablePanel("Vehicle Maintenance", vehicleRows(data.vehicles_unavailable), "compact-table responsive-card-table")}</div>
+    </div>
+
+    <!-- OTHER -->
+    <div class="row g-3 mb-3 coordinator-grid">
+      <div class="col-12">${tablePanel("Overdue Follow-Ups", followUpRows(data.overdue_follow_ups), "compact-table responsive-card-table")}</div>
     </div>
     <div class="row g-3 coordinator-grid">
-      <div class="col-xl-6">${tablePanel("Overdue Follow-Ups", followUpRows(data.overdue_follow_ups), "compact-table responsive-card-table")}</div>
-      <div class="col-xl-6"><div class="card-lite panel fill-panel"><div class="panel-title"><h3>Recent Activity</h3></div>${activityList(data.recent_activity)}</div></div>
+      <div class="col-12"><div class="card-lite panel fill-panel"><div class="panel-title"><h3>Recent Activity</h3></div>${activityList(data.recent_activity)}</div></div>
     </div>
   `;
   $("#windowSelect").addEventListener("change", (event) => {

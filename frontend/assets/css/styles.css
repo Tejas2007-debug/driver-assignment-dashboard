@@ -664,10 +664,14 @@ a { text-decoration: none; }
 }
 
 .trip-table td {
+  white-space: nowrap;
+  padding: 12px 14px;
+  vertical-align: middle;
+}
+
+.trip-table td:nth-child(4) {
   white-space: normal;
   word-break: break-word;
-  padding: 10px 14px;
-  vertical-align: middle;
 }
 
 .trip-table th {
@@ -677,7 +681,6 @@ a { text-decoration: none; }
 
 .trip-table .route-cell {
   gap: 4px;
-  min-width: 180px;
 }
 
 .trip-table .route-arrow {
@@ -693,7 +696,6 @@ a { text-decoration: none; }
 .trip-table .status-steps {
   gap: 2px;
   margin-bottom: 4px;
-  min-width: 140px;
 }
 
 .trip-table .status-steps span {
@@ -703,7 +705,6 @@ a { text-decoration: none; }
 .trip-table .trip-status-select,
 .trip-table .payment-status-select {
   width: auto;
-  min-width: 140px;
   max-width: 100%;
 }
 

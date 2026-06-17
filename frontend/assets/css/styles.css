@@ -650,17 +650,42 @@ a { text-decoration: none; }
 }
 
 .booking-table {
-  min-width: 1200px;
-  table-layout: auto;
-}
-
-.trip-table {
   min-width: 100%;
   table-layout: auto;
 }
 
 .booking-table td {
   white-space: nowrap;
+  padding: 10px 8px;
+  vertical-align: middle;
+}
+
+.booking-table th {
+  padding: 10px 8px;
+  white-space: nowrap;
+}
+
+/* Allow Route column to wrap naturally */
+.booking-table td:nth-child(4) {
+  white-space: normal;
+  word-break: normal;
+  word-wrap: normal;
+}
+
+/* Precise Bookings Table Balancing */
+.booking-table th:nth-child(1), .booking-table td:nth-child(1) { width: 13%; } /* Booking ID */
+.booking-table th:nth-child(2), .booking-table td:nth-child(2) { width: 8%; }  /* Invoice */
+.booking-table th:nth-child(3), .booking-table td:nth-child(3) { width: 12%; } /* Customer */
+.booking-table th:nth-child(4), .booking-table td:nth-child(4) { width: 22%; } /* Route */
+.booking-table th:nth-child(5), .booking-table td:nth-child(5) { width: 11%; } /* Schedule */
+.booking-table th:nth-child(6), .booking-table td:nth-child(6) { width: 11%; } /* Vehicle Type */
+.booking-table th:nth-child(7), .booking-table td:nth-child(7) { width: 10%; } /* Status */
+.booking-table th:nth-child(8), .booking-table td:nth-child(8) { width: 10%; } /* Payment */
+.booking-table th:nth-child(9), .booking-table td:nth-child(9) { width: 3%; }  /* Action */
+
+.trip-table {
+  min-width: 100%;
+  table-layout: auto;
 }
 
 .trip-table td {

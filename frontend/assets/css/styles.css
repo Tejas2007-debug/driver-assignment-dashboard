@@ -649,16 +649,73 @@ a { text-decoration: none; }
   table-layout: auto;
 }
 
-.booking-table,
-.trip-table {
+.booking-table {
   min-width: 1200px;
   table-layout: auto;
 }
 
-.booking-table td,
-.trip-table td {
+.trip-table {
+  min-width: 100%;
+  table-layout: fixed;
+}
+
+.booking-table td {
   white-space: nowrap;
 }
+
+.trip-table td {
+  white-space: nowrap;
+  padding: 8px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trip-table th {
+  padding: 10px;
+}
+
+/* Priority Column Balancing */
+.trip-table th:nth-child(1), .trip-table td:nth-child(1) { width: 12%; }
+.trip-table th:nth-child(2), .trip-table td:nth-child(2) { width: 12%; }
+.trip-table th:nth-child(3), .trip-table td:nth-child(3) { width: 16%; }
+.trip-table th:nth-child(4), .trip-table td:nth-child(4) { width: 16%; }
+.trip-table th:nth-child(5), .trip-table td:nth-child(5) { width: 14%; }
+.trip-table th:nth-child(6), .trip-table td:nth-child(6) { width: 10%; }
+.trip-table th:nth-child(7), .trip-table td:nth-child(7) { width: 10%; }
+.trip-table th:nth-child(8), .trip-table td:nth-child(8) { width: 7%; }
+.trip-table th:nth-child(9), .trip-table td:nth-child(9) { width: 3%; }
+
+.trip-table .route-cell {
+  gap: 2px;
+  min-width: 0;
+}
+
+.trip-table .route-arrow {
+  padding-left: 2px;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.trip-table .route-point {
+  line-height: 1.2;
+}
+
+.trip-table .status-steps {
+  gap: 2px;
+  margin-bottom: 4px;
+}
+
+.trip-table .status-steps span {
+  height: 4px;
+}
+
+.trip-table .trip-status-select,
+.trip-table .payment-status-select {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
 
 .booking-id {
   white-space: nowrap !important;
@@ -696,7 +753,6 @@ a { text-decoration: none; }
   display: block;
 }
 
-.trip-table td:nth-child(9) { width: 72px; }
 
 .profile-cell {
   display: flex;

@@ -790,13 +790,20 @@ a { text-decoration: none; }
 .profile-cell {
   display: flex;
   align-items: center;
-  gap: 11px;
-  min-width: 180px;
+  gap: 12px;
+}
+
+.profile-cell div {
+  flex: 1;
+  min-width: 120px;
 }
 
 .profile-cell strong,
 .profile-cell small {
   display: block;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
 }
 
 .profile-cell strong { font-weight: 800; }
@@ -1132,8 +1139,6 @@ a { text-decoration: none; }
   padding: 9px 10px;
 }
 
-.profile-cell,
-.profile-cell > div,
 .route-cell,
 .assignment-cell,
 .status-cell,

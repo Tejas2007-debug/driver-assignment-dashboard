@@ -344,12 +344,62 @@ async function loadCoreData() {
   ]);
   state.data.customers = customers.customers;
   state.data.bookings = bookings.bookings;
+
+async function api(path, options = {}) {
+  showLoader(true);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: options.method || "GET",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || "Request failed");
+    return data;
+  } finally {
+    showLoader(false);
+  }
+}
+
+function showLoader(show) {
+  loader?.classList.toggle("d-none", !show);
+}
+
+function toast(message, type = "success") {
+  if (!$("#toastHost")) {
+    alert(message);
+    return;
+  }
+  const id = `toast-${Date.now()}`;
+  $("#toastHost").insertAdjacentHTML(
+    "beforeend",
+    `<div id="${id}" class="toast align-items-center text-bg-${type} border-0" role="alert">
+      <div class="d-flex"><div class="toast-body">${escapeHtml(message)}</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>
+    </div>`
+  );
+  const node = document.getElementById(id);
+  bootstrap.Toast.getOrCreateInstance(node, { delay: 2600 }).show();
+  node.addEventListener("hidden.bs.toast", () => node.remove());
+}
+
+async function loadCoreData() {
+  const [customers, bookings, drivers, vehicles, assignments] = await Promise.all([
+    api("/customers"),
+    api("/bookings"),
+    api("/drivers"),
+    api("/vehicles"),
+    api("/assignments"),
+  ]);
+  state.data.customers = customers.customers;
+  state.data.bookings = bookings.bookings;
   state.data.drivers = drivers.drivers;
   state.data.vehicles = vehicles.vehicles;
   state.data.assignments = assignments.assignments;
 }
 
-async function loadActivity(limit = 12) {
+async function loadActivity(limit = 100) {
   try {
     const res = await api(`/activity?limit=${limit}`);
     state.data.activity = res.activity || [];
@@ -734,20 +784,14 @@ async function renderAssignments() {
         </div>
       </div>
     <div class="col-xl-8"><div class="card-lite panel"><div class="panel-title"><h3>Assignment History</h3></div>${assignmentTimeline(state.data.assignments, true)}</div></div>
-      <div class="col-12"><div class="card-lite panel"><div class="panel-title"><h3>Action History</h3></div>${actionHistoryList()}</div></div>
+      <div class="col-12"><div class="card-lite panel"><div class="panel-title d-flex justify-content-between align-items-center"><h3>Action History</h3><button class="btn btn-sm btn-outline-danger" id="clearActionHistoryBtn">Clear All History</button></div><div id="actionHistoryContainer">${actionHistoryList()}</div></div></div>
     </div>
   `;
   $("#assignmentForm").addEventListener("submit", saveAssignment);
   document.querySelectorAll("[data-reassign]").forEach((button) => button.addEventListener("click", () => openReassignModal(Number(button.dataset.reassign))));
   document.querySelectorAll("[data-assignment-detail]").forEach((button) => button.addEventListener("click", () => openAssignmentDetailModal(Number(button.dataset.assignmentDetail))));
-  document.querySelectorAll("[data-delete-assignment]")
-.forEach((button) =>
-    button.addEventListener("click", () =>
-        deleteAssignment(
-            Number(button.dataset.deleteAssignment)
-        )
-    )
-);
+  document.querySelectorAll("[data-delete-assignment]").forEach((button) => button.addEventListener("click", () => deleteAssignment(Number(button.dataset.deleteAssignment))));
+  bindActionHistoryEvents();
 }
 
 function selectField(name, label, options) {
@@ -1384,7 +1428,7 @@ async function renderCoordinator() {
       <div class="col-12">${tablePanel("Overdue Follow-Ups", followUpRows(data.overdue_follow_ups), "compact-table responsive-card-table")}</div>
     </div>
     <div class="row g-3 coordinator-grid">
-      <div class="col-12"><div class="card-lite panel fill-panel"><div class="panel-title"><h3>Recent Activity</h3></div>${activityList(data.recent_activity)}</div></div>
+      <div class="col-12"><div class="card-lite panel fill-panel"><div class="panel-title d-flex justify-content-between align-items-center"><h3>Recent Activity</h3><button class="btn btn-sm btn-outline-danger" id="clearRecentActivityBtn">Clear All History</button></div><div id="recentActivityContainer">${activityList(data.recent_activity)}</div></div></div>
     </div>
   `;
   $("#windowSelect").addEventListener("change", (event) => {
@@ -1392,6 +1436,7 @@ async function renderCoordinator() {
     renderCoordinator();
   });
   applyResponsiveTableLabels();
+  bindRecentActivityEvents();
 }
 
 function applyResponsiveTableLabels(root = content) {
@@ -1462,24 +1507,104 @@ function activityList(rows) {
   return `<div class="timeline-list compact-history">${rows.map((item) => `
     <div class="timeline-item">
       <div class="timeline-dot"></div>
-      <div class="timeline-card">
-        <div class="timeline-head"><strong>${escapeHtml(item.action)}</strong><small>${formatDateTime(item.created_at)}</small></div>
+      <div class="timeline-card position-relative">
+        <button class="btn btn-sm text-danger position-absolute top-0 end-0 m-2 delete-recent-activity-btn" data-id="${item.id}" title="Delete record" style="padding: 0; border: none; background: transparent;"><i class="fa-solid fa-trash"></i></button>
+        <div class="timeline-head pe-4"><strong>${escapeHtml(item.action)}</strong><small>${formatDateTime(item.created_at)}</small></div>
         <div class="timeline-grid"><span>${escapeHtml(item.booking_code || "-")}</span><span>${escapeHtml(item.driver_name || "-")}</span><span>${escapeHtml(item.vehicle_name || "-")}</span><span>${escapeHtml(item.detail || "")}</span></div>
       </div>
     </div>`).join("")}</div>`;
 }
 
-function actionHistoryList(limit = 12) {
+function actionHistoryList(limit = 100) {
   const history = storageArray(STORAGE_KEYS.actionHistory).slice(0, limit);
   if (!history.length) return `<div class="text-center text-secondary py-4">No action history recorded yet</div>`;
-  return `<div class="timeline-list compact-history">${history.map((item) => `
+  return `<div class="timeline-list compact-history">${history.map((item, index) => `
     <div class="timeline-item">
       <div class="timeline-dot"></div>
-      <div class="timeline-card">
-        <div class="timeline-head"><strong>${escapeHtml(item.action)}</strong><small>${formatDateTime(item.created_at)}</small></div>
+      <div class="timeline-card position-relative">
+        <button class="btn btn-sm text-danger position-absolute top-0 end-0 m-2 delete-action-history-btn" data-index="${index}" title="Delete record" style="padding: 0; border: none; background: transparent;"><i class="fa-solid fa-trash"></i></button>
+        <div class="timeline-head pe-4"><strong>${escapeHtml(item.action)}</strong><small>${formatDateTime(item.created_at)}</small></div>
         <div class="timeline-grid"><span>${escapeHtml(item.booking_code || "-")}</span><span>${escapeHtml(item.invoice_number || "-")}</span><span>${escapeHtml(item.driver_name || "-")}</span><span>${escapeHtml(item.vehicle_name || "-")}</span><span>${escapeHtml(item.detail || "")}</span></div>
       </div>
     </div>`).join("")}</div>`;
+}
+
+function bindRecentActivityEvents() {
+  document.querySelectorAll(".delete-recent-activity-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (confirm("Are you sure you want to delete this record?")) {
+        const id = btn.dataset.id;
+        try {
+          await api(`/activity/${id}`, { method: "DELETE" });
+        } catch (e) {
+          console.warn("API delete activity failed", e);
+        }
+        state.data.activity = state.data.activity.filter(a => String(a.id) !== String(id));
+        toast("Record deleted");
+        const container = document.getElementById("recentActivityContainer");
+        if (container) {
+          container.innerHTML = activityList(state.data.activity);
+          bindRecentActivityEvents();
+        }
+      }
+    });
+  });
+
+  const clearBtn = document.getElementById("clearRecentActivityBtn");
+  if (clearBtn && !clearBtn.dataset.bound) {
+    clearBtn.dataset.bound = "true";
+    clearBtn.addEventListener("click", async () => {
+      if (confirm("Are you sure you want to clear all recent activity?")) {
+        try {
+          await api("/activity", { method: "DELETE" });
+        } catch (e) {
+          console.warn("API clear activity failed", e);
+        }
+        state.data.activity = [];
+        toast("Recent activity cleared");
+        const container = document.getElementById("recentActivityContainer");
+        if (container) {
+          container.innerHTML = activityList(state.data.activity);
+          bindRecentActivityEvents();
+        }
+      }
+    });
+  }
+}
+
+function bindActionHistoryEvents() {
+  document.querySelectorAll(".delete-action-history-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (confirm("Are you sure you want to delete this record?")) {
+        const index = Number(btn.dataset.index);
+        const history = storageArray(STORAGE_KEYS.actionHistory);
+        history.splice(index, 1);
+        localStorage.setItem(STORAGE_KEYS.actionHistory, JSON.stringify(history));
+        toast("Record deleted");
+        const container = document.getElementById("actionHistoryContainer");
+        if (container) {
+          container.innerHTML = actionHistoryList();
+          bindActionHistoryEvents();
+        }
+      }
+    });
+  });
+
+  const clearBtn = document.getElementById("clearActionHistoryBtn");
+  if (clearBtn && !clearBtn.dataset.bound) {
+    clearBtn.dataset.bound = "true";
+    clearBtn.addEventListener("click", () => {
+      if (confirm("Are you sure you want to clear all action history?")) {
+        localStorage.setItem(STORAGE_KEYS.actionHistory, JSON.stringify([]));
+        toast("Action history cleared");
+        const container = document.getElementById("actionHistoryContainer");
+        if (container) {
+          container.innerHTML = actionHistoryList();
+          bindActionHistoryEvents();
+        }
+      }
+    });
+  }
 }
 
 function coordinatorBookingRows(rows, mode = "default") {

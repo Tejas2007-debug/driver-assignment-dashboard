@@ -512,7 +512,10 @@ const configs = {
     key: "bookings",
     title: "Booking",
     fields: () => [
-      ["customer_id", "Customer Name", "select", state.data.customers.map((c) => [c.id, c.name])],
+      ["customer_id", "Customer Name", "select", state.data.customers.filter(c => {
+        if (state.modalMode?.item?.customer_id === c.id) return true;
+        return !state.data.bookings.some(b => b.customer_id === c.id && b.status !== "Completed");
+      }).map((c) => [c.id, c.name])],
       ["pickup_location", "Pickup Location", "text"],
       ["drop_location", "Drop Location", "text"],
       ["trip_date", "Trip Date", "date"],

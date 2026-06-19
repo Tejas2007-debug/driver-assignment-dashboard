@@ -513,6 +513,12 @@ def create_booking():
         return fail(str(exc))
     if not Customer.query.get(customer_id):
         return fail("Selected customer does not exist")
+    active_booking = Booking.query.filter(
+        Booking.customer_id == customer_id,
+        Booking.status != "Completed"
+    ).first()
+    if active_booking:
+        return fail("Customer already has an active booking.")
     if trip_date < date.today():
         return fail("Trip date cannot be in the past")
     status = payload.get("status", "Pending")
@@ -595,6 +601,13 @@ def booking_detail(booking_id):
         return fail("Booking contains an invalid customer, date, or time")
     if not Customer.query.get(customer_id):
         return fail("Selected customer does not exist")
+    if customer_id != booking.customer_id:
+        active_booking = Booking.query.filter(
+            Booking.customer_id == customer_id,
+            Booking.status != "Completed"
+        ).first()
+        if active_booking:
+            return fail("Customer already has an active booking.")
     if trip_date < date.today() and status != "Completed":
         return fail("Trip date cannot be in the past")
 

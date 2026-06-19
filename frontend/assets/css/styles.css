@@ -1352,10 +1352,12 @@ a { text-decoration: none; }
   .responsive-card-table tr:last-child { margin-bottom: 0; }
 
   .responsive-card-table td {
-    display: block;
-    width: 100%;
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 10px;
+    align-items: start;
     border: 0;
-    padding: 10px 0;
+    padding: 7px 0;
     word-break: normal;
     overflow-wrap: break-word;
     white-space: normal;
@@ -1364,11 +1366,13 @@ a { text-decoration: none; }
   .responsive-card-table td::before {
     content: attr(data-label);
     display: block;
-    margin-bottom: 4px;
     color: var(--muted);
     font-size: 0.72rem;
     font-weight: 850;
     text-transform: uppercase;
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
   }
 
   .responsive-card-table td.text-center,

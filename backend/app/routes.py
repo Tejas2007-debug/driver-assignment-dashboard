@@ -878,9 +878,33 @@ def reports():
 @api_bp.get("/activity")
 @login_required
 def activity():
-    limit = min(int(request.args.get("limit", 12)), 50)
+    limit = min(int(request.args.get("limit", 12)), 100)
     rows = ActivityLog.query.order_by(ActivityLog.created_at.desc()).limit(limit).all()
     return ok({"activity": [item.to_dict() for item in rows]})
+
+
+@api_bp.delete("/activity/<int:activity_id>")
+@login_required
+def delete_activity(activity_id):
+    activity_log = ActivityLog.query.get_or_404(activity_id)
+    db.session.delete(activity_log)
+    db.session.commit()
+    return ok({"message": "Activity record deleted successfully"})
+
+
+@api_bp.delete("/activity")
+@login_required
+def clear_all_activity():
+    try:
+        num_deleted = db.session.query(ActivityLog).delete()
+        db.session.commit()
+        return ok({
+            "message": f"Successfully cleared {num_deleted} activity records",
+            "deleted_count": num_deleted
+        })
+    except Exception as e:
+        db.session.rollback()
+        return fail(f"Failed to clear activity logs: {str(e)}", 500)
 
 
 def assignments_for_export():

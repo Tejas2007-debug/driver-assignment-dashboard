@@ -1353,8 +1353,8 @@ a { text-decoration: none; }
 
   .responsive-card-table td {
     display: grid;
-    grid-template-columns: 140px 1fr;
-    gap: 10px;
+    grid-template-columns: 100px minmax(0, 1fr);
+    gap: 8px;
     align-items: start;
     border: 0;
     padding: 7px 0;

@@ -1152,7 +1152,8 @@ a { text-decoration: none; }
 .detail-card p,
 .timeline-grid span,
 .route-cell span,
-.route-point {
+.route-point,
+.route-value {
   word-break: normal;
   overflow-wrap: break-word;
   white-space: normal;
@@ -1351,11 +1352,10 @@ a { text-decoration: none; }
   .responsive-card-table tr:last-child { margin-bottom: 0; }
 
   .responsive-card-table td {
-    display: grid;
-    grid-template-columns: minmax(92px, 34%) 1fr;
-    gap: 10px;
+    display: block;
+    width: 100%;
     border: 0;
-    padding: 7px 0;
+    padding: 10px 0;
     word-break: normal;
     overflow-wrap: break-word;
     white-space: normal;
@@ -1363,6 +1363,8 @@ a { text-decoration: none; }
 
   .responsive-card-table td::before {
     content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
     color: var(--muted);
     font-size: 0.72rem;
     font-weight: 850;

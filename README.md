@@ -8,7 +8,7 @@ The system helps administrators manage customers, bookings, drivers, vehicles, d
 
 - Frontend: HTML5, CSS3, Vanilla JavaScript, Bootstrap 5, Font Awesome, Chart.js
 - Backend: Python Flask, Flask REST APIs, Flask-CORS, SQLAlchemy ORM
-- Database: MySQL
+- Database: PostgreSQL
 
 ## Required Modules
 

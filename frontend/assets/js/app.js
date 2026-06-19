@@ -344,56 +344,6 @@ async function loadCoreData() {
   ]);
   state.data.customers = customers.customers;
   state.data.bookings = bookings.bookings;
-
-async function api(path, options = {}) {
-  showLoader(true);
-  try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      method: options.method || "GET",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || "Request failed");
-    return data;
-  } finally {
-    showLoader(false);
-  }
-}
-
-function showLoader(show) {
-  loader?.classList.toggle("d-none", !show);
-}
-
-function toast(message, type = "success") {
-  if (!$("#toastHost")) {
-    alert(message);
-    return;
-  }
-  const id = `toast-${Date.now()}`;
-  $("#toastHost").insertAdjacentHTML(
-    "beforeend",
-    `<div id="${id}" class="toast align-items-center text-bg-${type} border-0" role="alert">
-      <div class="d-flex"><div class="toast-body">${escapeHtml(message)}</div>
-      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>
-    </div>`
-  );
-  const node = document.getElementById(id);
-  bootstrap.Toast.getOrCreateInstance(node, { delay: 2600 }).show();
-  node.addEventListener("hidden.bs.toast", () => node.remove());
-}
-
-async function loadCoreData() {
-  const [customers, bookings, drivers, vehicles, assignments] = await Promise.all([
-    api("/customers"),
-    api("/bookings"),
-    api("/drivers"),
-    api("/vehicles"),
-    api("/assignments"),
-  ]);
-  state.data.customers = customers.customers;
-  state.data.bookings = bookings.bookings;
   state.data.drivers = drivers.drivers;
   state.data.vehicles = vehicles.vehicles;
   state.data.assignments = assignments.assignments;

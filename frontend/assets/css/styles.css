@@ -753,9 +753,13 @@ a { text-decoration: none; }
 
 .route-cell {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 220px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  word-break: normal;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 
 .route-point {
@@ -830,9 +834,10 @@ a { text-decoration: none; }
   padding: 7px 11px;
   font-weight: 800;
   font-size: 0.76rem;
-  white-space: nowrap;
+  white-space: nowrap !important;
   vertical-align: middle;
   line-height: 1;
+  min-width: max-content;
 }
 
 .experience-badge {
@@ -971,7 +976,7 @@ a { text-decoration: none; }
   display: flex;
   gap: 8px;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .actions .btn {
@@ -1141,20 +1146,22 @@ a { text-decoration: none; }
 .profile-cell small,
 .detail-card p,
 .timeline-grid span,
-.route-cell span {
-  overflow-wrap: anywhere;
+.route-cell span,
+.route-point {
+  word-break: normal;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 
 .booking-id {
   display: inline-block;
   max-width: 100%;
-  overflow-wrap: anywhere;
+  word-break: normal;
+  overflow-wrap: break-word;
+  white-space: normal;
   font-size: 0.88rem;
   font-weight: 800;
-  white-space: normal;
 }
-
-.badge-soft { white-space: normal; }
 
 .metric-icon { flex-shrink: 0; }
 
@@ -1186,12 +1193,7 @@ a { text-decoration: none; }
   overflow-wrap: anywhere;
 }
 
-.route-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
+
 
 .route-cell i { color: var(--primary); }
 
@@ -1306,6 +1308,69 @@ a { text-decoration: none; }
   .timeline-grid { flex-direction: column; align-items: flex-start; }
   .actions { justify-content: flex-start; }
   .chart-container { height: 280px; }
+
+  .responsive-card-table {
+    border: 0;
+    background: transparent;
+  }
+
+  .responsive-card-table table,
+  .responsive-card-table thead,
+  .responsive-card-table tbody,
+  .responsive-card-table tr,
+  .responsive-card-table th,
+  .responsive-card-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .customer-table,
+  .dashboard-table .table,
+  .booking-table,
+  .trip-table {
+    min-width: 0;
+    table-layout: auto;
+  }
+
+  .responsive-card-table thead { display: none; }
+
+  .responsive-card-table tr {
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .responsive-card-table tr:last-child { margin-bottom: 0; }
+
+  .responsive-card-table td {
+    display: grid;
+    grid-template-columns: minmax(92px, 34%) 1fr;
+    gap: 10px;
+    border: 0;
+    padding: 7px 0;
+    word-break: normal;
+    overflow-wrap: break-word;
+    white-space: normal;
+  }
+
+  .responsive-card-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 850;
+    text-transform: uppercase;
+  }
+
+  .responsive-card-table td.text-center,
+  .responsive-card-table td.text-center::before {
+    display: block;
+  }
+
+  .responsive-card-table td.text-center::before { content: ""; }
+
 }
 
 @media (max-width: 576px) {
@@ -1361,65 +1426,7 @@ a { text-decoration: none; }
   .profile-dropdown { right: -4px; width: min(250px, calc(100vw - 32px)); }
   .table-responsive { border-radius: 14px; }
 
-  .responsive-card-table {
-    border: 0;
-    background: transparent;
-  }
 
-  .responsive-card-table table,
-  .responsive-card-table thead,
-  .responsive-card-table tbody,
-  .responsive-card-table tr,
-  .responsive-card-table th,
-  .responsive-card-table td {
-    display: block;
-    width: 100%;
-  }
-
-  .customer-table,
-  .dashboard-table .table,
-  .booking-table,
-  .trip-table {
-    min-width: 0;
-    table-layout: auto;
-  }
-
-  .responsive-card-table thead { display: none; }
-
-  .responsive-card-table tr {
-    margin-bottom: 12px;
-    padding: 10px 12px;
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    background: #fff;
-    box-shadow: var(--shadow-sm);
-  }
-
-  .responsive-card-table tr:last-child { margin-bottom: 0; }
-
-  .responsive-card-table td {
-    display: grid;
-    grid-template-columns: minmax(92px, 34%) 1fr;
-    gap: 10px;
-    border: 0;
-    padding: 7px 0;
-    overflow-wrap: anywhere;
-  }
-
-  .responsive-card-table td::before {
-    content: attr(data-label);
-    color: var(--muted);
-    font-size: 0.72rem;
-    font-weight: 850;
-    text-transform: uppercase;
-  }
-
-  .responsive-card-table td.text-center,
-  .responsive-card-table td.text-center::before {
-    display: block;
-  }
-
-  .responsive-card-table td.text-center::before { content: ""; }
 
   .trip-status-select,
   .payment-status-select,

@@ -890,7 +890,13 @@ function tripRow(item) {
 }
 
 function tripStatusOptions(status) {
-  return [status, ...(STATUS_TRANSITIONS[status] || [])];
+  return [
+    "Pending",
+    "Confirmed",
+    "Driver Assigned",
+    "Trip Started",
+    "Completed"
+  ];
 }
 
 async function updateTripStatus(event) {

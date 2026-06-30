@@ -1141,7 +1141,9 @@ function saveStorageObject(key, value) {
 
 function bookingPaymentStatus(booking) {
   const bookingId = booking?.booking_id || booking?.id;
-  return storageObject(STORAGE_KEYS.payment)[bookingId] || booking?.payment_status || "Pending";
+  const override = storageObject(STORAGE_KEYS.payment)[bookingId];
+  if (override && override === booking?.payment_status) return override;
+  return booking?.payment_status || "Pending";
 }
 
 function saveBookingPaymentStatus(id, status) {
@@ -1153,7 +1155,7 @@ function saveBookingPaymentStatus(id, status) {
 
 function driverStatus(driver) {
   const override = storageObject(STORAGE_KEYS.driverStatus)[driver?.id];
-  if (override) return override;
+  if (override && apiDriverStatus(override) === driver?.availability_status) return override;
   if (driver?.availability_status === "Assigned") return "On Trip";
   return driver?.availability_status || "Available";
 }
